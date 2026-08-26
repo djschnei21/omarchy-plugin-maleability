@@ -67,7 +67,7 @@ BarWidget {
     }
     function debug(): string {
       if (panelLoader.item) return panelLoader.item.debugState()
-      return JSON.stringify({ v: "1.0.4", loaded: false })
+      return JSON.stringify({ v: "1.0.5", loaded: false })
     }
   }
 

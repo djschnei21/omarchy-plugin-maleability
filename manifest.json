@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "djschnei21.plugin-maleability",
   "name": "Plugin Maleability",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": "djschnei21",
   "license": "MIT",
   "description": "Treat Omarchy plugins as malleable: record local tweaks outside their git trees, and re-apply them through your default agent after an update.",

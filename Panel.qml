@@ -24,7 +24,6 @@ Panel {
   property var selectedPlugin: null
   property var selectedItem: null
   property var pluginIds: []
-  property bool uninstallArmed: false
   property bool resetArmed: false
   property bool reapplyArmed: false
   property bool updateOpen: false
@@ -128,12 +127,10 @@ Panel {
   }
 
   function clearArms() {
-    uninstallArmed = false
     resetArmed = false
     reapplyArmed = false
     updateOpen = false
     deleteArmed = false
-    uninstallArmTimer.stop()
     resetArmTimer.stop()
     reapplyArmTimer.stop()
     deleteArmTimer.stop()
@@ -164,7 +161,7 @@ Panel {
 
   function debugState() {
     return JSON.stringify({
-      v: "1.0.4",
+      v: "1.0.5",
       page: root.page,
       plugins: root.pluginIds.length,
       plugin: root.selectedPlugin ? root.selectedPlugin.id : ""
@@ -274,24 +271,6 @@ Panel {
                 fontSize: Style.font.caption
                 verticalPadding: Style.spacing.controlPaddingY
                 onClicked: model.refresh(true)
-              }
-              Button {
-                text: root.uninstallArmed ? "Confirm uninstall?" : "Uninstall"
-                bordered: true
-                foreground: root.uninstallArmed ? root.urgent : root.foreground
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                verticalPadding: Style.spacing.controlPaddingY
-                onClicked: {
-                  if (!root.uninstallArmed) {
-                    root.uninstallArmed = true
-                    uninstallArmTimer.restart()
-                    return
-                  }
-                  root.uninstallArmed = false
-                  model.uninstall()
-                  root.close()
-                }
               }
             }
 
@@ -635,7 +614,6 @@ Panel {
     }
   }
 
-  Timer { id: uninstallArmTimer; interval: 4000; repeat: false; onTriggered: root.uninstallArmed = false }
   Timer { id: resetArmTimer; interval: 4000; repeat: false; onTriggered: root.resetArmed = false }
   Timer { id: reapplyArmTimer; interval: 4000; repeat: false; onTriggered: root.reapplyArmed = false }
   Timer { id: deleteArmTimer; interval: 4000; repeat: false; onTriggered: root.deleteArmed = false }

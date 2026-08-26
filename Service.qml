@@ -50,10 +50,6 @@ Item {
     return Qt.resolvedUrl("scripts/install").toString().replace(/^file:\/\//, "")
   }
 
-  function uninstallPath() {
-    return Qt.resolvedUrl("scripts/uninstall").toString().replace(/^file:\/\//, "")
-  }
-
   function refresh(fetch) {
     if (scanProcess.running || installProcess.running || actionProcess.running) {
       refreshQueued = true
@@ -149,13 +145,6 @@ Item {
     Quickshell.execDetached(["omarchy-launch-editor", value])
   }
 
-  function uninstall() {
-    if (uninstallProcess.running)
-      return
-    uninstallProcess.command = [uninstallPath()]
-    uninstallProcess.running = true
-  }
-
   Component.onCompleted: {
     installing = true
     installProcess.command = [installPath()]
@@ -216,12 +205,6 @@ Item {
       waitForEnd: true
       onStreamFinished: root._stderr = text
     }
-  }
-
-  Process {
-    id: uninstallProcess
-    running: false
-    command: []
   }
 
   Process {

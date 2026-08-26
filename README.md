@@ -51,15 +51,16 @@ omarchy bar move djschnei21.plugin-maleability --section right
 omarchy plugin remove djschnei21.plugin-maleability
 ```
 
-That removes the checkout and disables the widget. Skill links under `$HOME`
-and records at `~/.config/omarchy/plugin-maleability/` stay so you can
-reinstall without losing intent.
-
-For a full cleanup (skill links, records, and the plugin), use the panel's
-**Uninstall** button, or:
+Records at `~/.config/omarchy/plugin-maleability/` stay, so a later reinstall
+can still re-apply them. Skill symlinks under `$HOME` will point at a removed
+tree; drop them if you are not reinstalling:
 
 ```sh
-~/.config/omarchy/plugins/djschnei21.plugin-maleability/scripts/uninstall
+rm -f ~/.agents/skills/plugin-maleability \
+      ~/.claude/skills/plugin-maleability \
+      ~/.codex/skills/plugin-maleability \
+      ~/.pi/agent/skills/plugin-maleability \
+      ~/.grok/skills/plugin-maleability
 ```
 
 ## Requirements
@@ -77,8 +78,7 @@ This plugin is unsandboxed, like every Omarchy plugin. It does not ask for
   under `~/.config/omarchy/plugin-maleability/`.
 - The bar widget runs `python3 status` in the shell process and launches the
   default agent with `omarchy-agent-prompt`.
-- `scripts/uninstall` deletes those skill links, the records directory, and
-  this checkout.
+- Removal is `omarchy plugin remove`. It does not delete records.
 
 ## Development
 
