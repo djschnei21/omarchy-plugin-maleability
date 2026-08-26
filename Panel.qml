@@ -164,6 +164,17 @@ Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): string { model.refresh(true); return "ok" }
+    function debug(): string {
+      return JSON.stringify({
+        v: "1.0.1",
+        draft: root.draftKeys.length,
+        applied: root.appliedKeys.length,
+        stale: root.staleKeys.length,
+        behind: root.behindKeys.length,
+        unrecorded: root.unrecordedKeys.length,
+        selected: root.selected ? root.selected.key : ""
+      })
+    }
   }
 
   BarIconButton {
@@ -187,7 +198,7 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(400))
-    contentHeight: panel.fittedContentHeight(content.implicitHeight, Style.space(560))
+    contentHeight: panel.fittedContentHeight(Math.max(content.implicitHeight, Style.space(420)), Style.space(640))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -232,7 +243,9 @@ Panel {
               if (model.installing) return "Installing skill links…"
               if (model.loading) return "Scanning plugins…"
               if (root.selected) return root.selected.name + " · " + root.selected.status
-              return model.message
+              var n = root.staleKeys.length + root.draftKeys.length + root.unrecordedKeys.length + root.behindKeys.length + root.appliedKeys.length
+              if (n === 0) return model.message
+              return n + " item" + (n === 1 ? "" : "s") + " · click a row"
             }
             foreground: root.foreground
             fontFamily: root.fontFamily

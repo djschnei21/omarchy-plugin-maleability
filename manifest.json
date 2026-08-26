@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "djschnei21.plugin-customizations",
   "name": "Plugin customizations",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "djschnei21",
   "license": "MIT",
   "description": "Track local Omarchy plugin tweaks, notify when an update would wipe them, and re-apply them through your default agent.",
