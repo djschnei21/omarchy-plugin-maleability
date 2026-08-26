@@ -21,6 +21,7 @@ Item {
   property bool acting: false
   property bool reapplyAfterAction: false
   property string actionPluginId: ""
+  property var pendingReapplyIds: []
 
   readonly property int refreshIntervalSec: intSetting("refreshIntervalSec", 120, 30, 3600)
   function itemPrompt(item) {
@@ -76,6 +77,7 @@ Item {
       counts = data.counts || counts
       plugins = Array.isArray(data.plugins) ? data.plugins : []
       pluginsRevision++
+      pendingReapplyIds = Array.isArray(data.reapplyIds) ? data.reapplyIds : []
       message = attention ? "Customizations need attention" : "All recorded customizations are applied"
     } catch (error) {
       message = "Could not read customization status."
@@ -98,12 +100,19 @@ Item {
       "On Omarchy plugin '" + id + "', implement this customization and record it with the plugin-customizations skill (enabled: true). Request: " + request])
   }
 
-  function launchReapplyPlugin(pluginId) {
+  function launchReapplyPlugin(pluginId, ids) {
     var id = String(pluginId || "")
     if (id === "")
       return
+    var list = []
+    if (ids && ids.length)
+      for (var i = 0; i < ids.length; i++)
+        list.push(String(ids[i]))
+    var scope = list.length
+      ? " Re-apply only these customizations, in order: " + list.join(", ") + "."
+      : " Re-apply its recorded customizations one by one."
     Quickshell.execDetached(["omarchy-agent-prompt",
-      "Plugin '" + id + "' is reset to upstream. Re-apply its recorded customizations one by one using the plugin-customizations skill. Skip drafts that still have a placeholder Goal. Set enabled: true on each record you apply."])
+      "Plugin '" + id + "' is reset to current upstream (HEAD, not a fetch)." + scope + " Use the plugin-customizations skill. Skip drafts that still have a placeholder Goal. Set enabled: true on each record you apply. Do not git reset; the helper already did."])
   }
 
   function runAction(kind, pluginId, thenReapply) {
@@ -232,9 +241,12 @@ Item {
         } catch (error) {
         }
       }
-      if (root.reapplyAfterAction && ok)
-        root.launchReapplyPlugin(root.actionPluginId)
+      if (ok && root.pendingReapplyIds && root.pendingReapplyIds.length)
+        root.launchReapplyPlugin(root.actionPluginId, root.pendingReapplyIds)
+      else if (root.reapplyAfterAction && ok)
+        root.launchReapplyPlugin(root.actionPluginId, [])
       root.reapplyAfterAction = false
+      root.pendingReapplyIds = []
       root.actionPluginId = ""
       Qt.callLater(function() { root.refresh(false) })
     }

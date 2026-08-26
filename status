@@ -527,22 +527,29 @@ def restore_record_files(plugin_dir: Path, rec: dict, catalog) -> str:
     return ""
 
 
-def delete_customization(plugin_id: str, customization_id: str, catalog) -> str:
+def delete_customization(plugin_id: str, customization_id: str, catalog) -> tuple[str, list[str]]:
     recs = load_records().get(plugin_id, [])
     rec = next((r for r in recs if r["id"] == customization_id), None)
     if not rec:
-        return f"customization not found: {customization_id}"
-    plugin_dir = find_plugin_dir(plugin_id)
-    if rec.get("enabled", True):
-        if not plugin_dir:
-            return f"plugin not found: {plugin_id}"
-        err = restore_record_files(plugin_dir, rec, catalog)
-        if err:
-            return err
+        return f"customization not found: {customization_id}", []
+    remaining_enabled = [
+        r["id"]
+        for r in recs
+        if r["id"] != customization_id and r.get("enabled", True)
+    ]
     path = Path(rec["path"])
     if path.is_file():
         path.unlink()
-    return ""
+    if not rec.get("enabled", True):
+        return "", []
+    plugin_dir = find_plugin_dir(plugin_id)
+    if not plugin_dir:
+        return f"plugin not found: {plugin_id}", []
+    err = reset_checkout(plugin_dir, catalog)
+    if err:
+        return err, []
+    mark_plugin_records(plugin_id, False)
+    return "", remaining_enabled
 
 
 def update_checkout(path: Path) -> str:
@@ -761,8 +768,9 @@ def main():
 
     catalog = catalog_source_dirs()
 
+    reapply_ids = []
     if args.delete:
-        err = delete_customization(args.delete[0], args.delete[1], catalog)
+        err, reapply_ids = delete_customization(args.delete[0], args.delete[1], catalog)
         if err:
             json.dump({"ok": False, "error": err}, sys.stdout)
             sys.stdout.write("\n")
@@ -803,6 +811,8 @@ def main():
                     plugins.append(scanned)
 
     payload = assemble(plugins)
+    if reapply_ids:
+        payload["reapplyIds"] = reapply_ids
     if args.notify:
         notify_if_needed(payload)
     json.dump(payload, sys.stdout, indent=2)

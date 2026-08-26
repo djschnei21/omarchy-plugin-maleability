@@ -74,7 +74,11 @@ unapplied, not gone.
 ## Delete
 
 The panel **Delete** button runs `status --delete PLUGIN_ID CUSTOMIZATION_ID`.
-If the record is enabled it restores those files to upstream (or removes
-files that only existed as the customization), then deletes the markdown.
-If it is already unapplied it only deletes the markdown. Do not do this
-yourself unless asked.
+
+- Unapplied: only the markdown is removed.
+- Enabled: the markdown is removed, the plugin checkout is reset to **current
+  HEAD** (not a fetch), remaining records are marked `enabled: false`, then
+  the agent is asked to re-apply the records that were still enabled, one by
+  one. Do not git reset again. Do not re-apply the deleted id.
+
+Overlapping file edits are why we do not restore one record's files in place.
