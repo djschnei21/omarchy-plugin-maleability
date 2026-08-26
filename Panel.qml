@@ -63,6 +63,10 @@ Panel {
     }
   }
 
+  function hasRecords(p) {
+    return !!(p && p.customizations && p.customizations.length > 0)
+  }
+
   function pluginSummary(p) {
     if (!p)
       return ""
@@ -408,12 +412,17 @@ Panel {
               }
             }
 
-            PanelSeparator { foreground: root.foreground }
+            PanelSeparator {
+              visible: root.hasRecords(root.selectedPlugin) || (root.selectedPlugin && root.selectedPlugin.behind)
+              foreground: root.foreground
+            }
 
             Flow {
+              visible: root.hasRecords(root.selectedPlugin) || (root.selectedPlugin && root.selectedPlugin.behind)
               width: parent.width
               spacing: Style.space(8)
               Button {
+                visible: root.hasRecords(root.selectedPlugin)
                 text: root.resetArmed ? "Confirm reset?" : "Reset to upstream"
                 enabled: !model.acting
                 bordered: true
@@ -432,6 +441,7 @@ Panel {
                 }
               }
               Button {
+                visible: root.hasRecords(root.selectedPlugin)
                 text: root.reapplyArmed ? "Confirm re-apply?" : "Re-apply"
                 enabled: !model.acting
                 bordered: true
@@ -451,19 +461,34 @@ Panel {
               }
               Button {
                 visible: root.selectedPlugin && root.selectedPlugin.behind
-                text: root.updateOpen ? "Cancel update" : "Update"
+                text: {
+                  if (!root.hasRecords(root.selectedPlugin))
+                    return root.updateOpen ? "Confirm update?" : "Update"
+                  return root.updateOpen ? "Cancel update" : "Update"
+                }
                 enabled: !model.acting
                 bordered: true
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
                 verticalPadding: Style.spacing.controlPaddingY
-                onClicked: root.updateOpen = !root.updateOpen
+                onClicked: {
+                  if (!root.hasRecords(root.selectedPlugin)) {
+                    if (!root.updateOpen) {
+                      root.updateOpen = true
+                      return
+                    }
+                    root.updateOpen = false
+                    model.runAction("update", root.selectedPlugin.id, false)
+                    return
+                  }
+                  root.updateOpen = !root.updateOpen
+                }
               }
             }
 
             Column {
-              visible: root.updateOpen && root.selectedPlugin && root.selectedPlugin.behind
+              visible: root.updateOpen && root.hasRecords(root.selectedPlugin) && root.selectedPlugin && root.selectedPlugin.behind
               width: parent.width
               spacing: Style.space(8)
               Button {
