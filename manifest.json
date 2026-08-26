@@ -6,7 +6,7 @@
   "author": "djschnei21",
   "license": "MIT",
   "description": "Treat Omarchy plugins as malleable: record local tweaks outside their git trees, and re-apply them through your default agent after an update.",
-  "homepage": "https://github.com/djschnei21/omarchy-plugin-customizations",
+  "homepage": "https://github.com/djschnei21/omarchy-plugin-maleability",
   "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "Panel.qml"

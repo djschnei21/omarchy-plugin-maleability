@@ -12,7 +12,7 @@ it through whatever agent `omarchy default agent` selected.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/djschnei21/omarchy-plugin-customizations.git --enable
+omarchy plugin add https://github.com/djschnei21/omarchy-plugin-maleability.git --enable
 ```
 
 On first load the widget:
