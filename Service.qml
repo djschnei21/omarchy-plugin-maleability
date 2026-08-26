@@ -1,0 +1,150 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+Item {
+  id: root
+
+  property var settings: ({})
+  property bool loading: false
+  property bool installing: false
+  property bool attention: false
+  property var counts: ({ stale: 0, draft: 0, unrecorded: 0, updateAvailable: 0, applied: 0 })
+  property var plugins: []
+  property string message: "Loading…"
+  property string _stdout: ""
+  property string _stderr: ""
+  property bool refreshQueued: false
+  property bool fetchNext: false
+  property bool installedOnce: false
+
+  readonly property int refreshIntervalSec: intSetting("refreshIntervalSec", 120, 30, 3600)
+  readonly property string reapplyPrompt: "Re-apply recorded Omarchy plugin customizations. Use the plugin-customizations skill."
+
+  function intSetting(name, fallback, minimum, maximum) {
+    var value = parseInt(String(settings && settings[name] !== undefined ? settings[name] : fallback), 10)
+    if (!isFinite(value))
+      value = fallback
+    return Math.max(minimum, Math.min(maximum, value))
+  }
+
+  function helperPath() {
+    return Qt.resolvedUrl("status").toString().replace(/^file:\/\//, "")
+  }
+
+  function installPath() {
+    return Qt.resolvedUrl("scripts/install").toString().replace(/^file:\/\//, "")
+  }
+
+  function uninstallPath() {
+    return Qt.resolvedUrl("scripts/uninstall").toString().replace(/^file:\/\//, "")
+  }
+
+  function refresh(fetch) {
+    if (scanProcess.running || installProcess.running) {
+      refreshQueued = true
+      fetchNext = fetchNext || !!fetch
+      return
+    }
+    loading = true
+    _stdout = ""
+    _stderr = ""
+    var cmd = ["python3", helperPath(), "--notify"]
+    if (fetch)
+      cmd.push("--fetch")
+    scanProcess.command = cmd
+    scanProcess.running = true
+  }
+
+  function apply(raw) {
+    try {
+      var data = JSON.parse(String(raw || ""))
+      attention = data.attention === true
+      counts = data.counts || counts
+      plugins = Array.isArray(data.plugins) ? data.plugins : []
+      message = attention ? "Customizations need attention" : "All recorded customizations are applied"
+    } catch (error) {
+      message = "Could not read customization status."
+      plugins = []
+    }
+  }
+
+  function launchReapply() {
+    Quickshell.execDetached(["omarchy-agent-prompt", reapplyPrompt])
+  }
+
+  function uninstall() {
+    if (uninstallProcess.running)
+      return
+    uninstallProcess.command = [uninstallPath()]
+    uninstallProcess.running = true
+  }
+
+  Component.onCompleted: {
+    installing = true
+    installProcess.command = [installPath()]
+    installProcess.running = true
+  }
+
+  Timer {
+    interval: root.refreshIntervalSec * 1000
+    repeat: true
+    running: true
+    onTriggered: root.refresh(false)
+  }
+
+  Process {
+    id: installProcess
+    running: false
+    command: []
+    onExited: function() {
+      root.installing = false
+      root.installedOnce = true
+      var stdout = String(installOut.text || "")
+      if (stdout.trim() !== "")
+        root.apply(stdout)
+      root.refresh(false)
+    }
+    stdout: StdioCollector {
+      id: installOut
+      waitForEnd: true
+    }
+    stderr: StdioCollector { waitForEnd: true }
+  }
+
+  Process {
+    id: scanProcess
+    running: false
+    command: []
+    onExited: function() {
+      root.loading = false
+      var stdout = String(scanOut.text || root._stdout || "")
+      if (stdout.trim() !== "")
+        root.apply(stdout)
+      else
+        root.message = String(scanErr.text || root._stderr || "Status scan failed.").trim()
+      if (root.refreshQueued) {
+        var fetch = root.fetchNext
+        root.refreshQueued = false
+        root.fetchNext = false
+        Qt.callLater(function() { root.refresh(fetch) })
+      }
+    }
+    stdout: StdioCollector {
+      id: scanOut
+      waitForEnd: true
+      onStreamFinished: root._stdout = text
+    }
+    stderr: StdioCollector {
+      id: scanErr
+      waitForEnd: true
+      onStreamFinished: root._stderr = text
+    }
+  }
+
+  Process {
+    id: uninstallProcess
+    running: false
+    command: []
+  }
+}

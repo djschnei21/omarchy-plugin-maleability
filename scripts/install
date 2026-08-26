@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Link this plugin into every Omarchy agent skill dir, then bootstrap records.
+set -euo pipefail
+
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STATUS="$PLUGIN_DIR/status"
+
+skill_dirs=(
+  "$HOME/.agents/skills"
+  "$HOME/.claude/skills"
+  "$HOME/.codex/skills"
+  "$HOME/.pi/agent/skills"
+  "$HOME/.grok/skills"
+)
+
+for dir in "${skill_dirs[@]}"; do
+  mkdir -p "$dir"
+  ln -sfn "$PLUGIN_DIR" "$dir/plugin-customizations"
+done
+
+exec python3 "$STATUS" --bootstrap "$@"

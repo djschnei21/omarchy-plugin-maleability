@@ -1,0 +1,611 @@
+#!/usr/bin/env python3
+"""Scan Omarchy plugin checkouts and recorded customizations.
+
+Prints one JSON object. Optional flags:
+  --bootstrap  write draft records for unrecorded local diffs
+  --fetch      git fetch origin on git-managed plugins
+  --notify     desktop-notify on a false→true attention transition
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+SELF_ID = "djschnei21.plugin-customizations"
+SKILL_NAME = "plugin-customizations"
+PLUGINS_DIR = Path.home() / ".config/omarchy/plugins"
+RECORDS_DIR = Path.home() / ".config/omarchy/plugin-customizations"
+NOTIFY_STATE = RECORDS_DIR / ".notify-state"
+SELF_DIR = Path(__file__).resolve().parent
+MAX_DIFF = 8000
+REAPPLY_PROMPT = (
+    "Re-apply recorded Omarchy plugin customizations. "
+    "Use the plugin-customizations skill."
+)
+
+
+def run(cmd, cwd=None, timeout=20):
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_SSH_COMMAND"] = env.get("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return proc.returncode, proc.stdout, proc.stderr
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, "", str(exc)
+
+
+def git(cwd, *args, timeout=20):
+    code, out, err = run(["git", "-C", str(cwd), *args], timeout=timeout)
+    return code, out.rstrip("\n"), err.rstrip("\n")
+
+
+def now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def read_json(path: Path, default=None):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def plugin_manifest(path: Path):
+    data = read_json(path / "manifest.json", {}) or {}
+    return {
+        "id": str(data.get("id") or path.name),
+        "name": str(data.get("name") or path.name),
+        "clonedFrom": str((data.get("omarchy") or {}).get("clonedFrom") or ""),
+    }
+
+
+def catalog_source_dirs():
+    code, out, _ = run(["omarchy-plugin-catalog"])
+    if code != 0 or not out.strip():
+        return {}
+    try:
+        rows = json.loads(out)
+    except json.JSONDecodeError:
+        return {}
+    mapping = {}
+    for row in rows:
+        pid = str(row.get("id") or "")
+        src = str(row.get("sourceDir") or "")
+        if pid and src:
+            mapping[pid] = Path(src)
+    return mapping
+
+
+def parse_frontmatter(text: str):
+    if not text.startswith("---"):
+        return {}, text
+    rest = text[3:].lstrip("\n")
+    end = rest.find("\n---")
+    if end < 0:
+        return {}, text
+    fm = rest[:end]
+    body = rest[end + 4 :]
+    lists, maps = set(), set()
+    current = None
+    for raw in fm.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if line.startswith("  - "):
+            if current:
+                lists.add(current)
+            continue
+        if line.startswith("  ") and ":" in line.strip():
+            if current:
+                maps.add(current)
+            continue
+        if ":" in line and not line.startswith(" "):
+            current = line.split(":", 1)[0].strip()
+    data = {}
+    current_list = None
+    current_map = None
+    for raw in fm.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if line.startswith("  - ") and current_list is not None:
+            current_list.append(line[4:].strip().strip('"'))
+            continue
+        if line.startswith("  ") and current_map is not None:
+            nested = line.strip()
+            if ":" in nested:
+                k, v = nested.split(":", 1)
+                current_map[k.strip()] = v.strip().strip('"')
+            continue
+        if ":" not in line or line.startswith(" "):
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        current_list = None
+        current_map = None
+        if value == "":
+            if key in lists:
+                data[key] = []
+                current_list = data[key]
+            else:
+                data[key] = {}
+                current_map = data[key]
+            continue
+        if value.lower() in ("true", "false"):
+            data[key] = value.lower() == "true"
+        else:
+            data[key] = value.strip('"')
+    return data, body
+
+
+def goal_is_draft(body: str) -> bool:
+    text = body.lower()
+    return "draft — refine" in text or "draft - refine" in text
+
+
+def load_records():
+    records = {}
+    if not RECORDS_DIR.is_dir():
+        return records
+    for plugin_dir in sorted(RECORDS_DIR.iterdir()):
+        if not plugin_dir.is_dir() or plugin_dir.name.startswith("."):
+            continue
+        for path in sorted(plugin_dir.glob("*.md")):
+            text = path.read_text(errors="replace")
+            fm, body = parse_frontmatter(text)
+            pid = str(fm.get("plugin") or plugin_dir.name)
+            cid = str(fm.get("id") or path.stem)
+            applied = fm.get("applied") if isinstance(fm.get("applied"), dict) else {}
+            files = fm.get("files") if isinstance(fm.get("files"), list) else []
+            rec = {
+                "id": cid,
+                "plugin": pid,
+                "title": str(fm.get("title") or cid),
+                "bootstrapped": bool(fm.get("bootstrapped")),
+                "appliedCommit": str(applied.get("commit") or ""),
+                "appliedAt": str(applied.get("at") or ""),
+                "files": [str(f) for f in files],
+                "path": str(path),
+                "draftGoal": goal_is_draft(body),
+            }
+            records.setdefault(pid, []).append(rec)
+    return records
+
+
+def git_head(path: Path) -> str:
+    code, out, _ = git(path, "rev-parse", "HEAD")
+    return out if code == 0 else ""
+
+
+def git_origin(path: Path) -> str:
+    for ref in ("@{u}", "origin/HEAD", "origin/main", "origin/master"):
+        code, out, _ = git(path, "rev-parse", ref)
+        if code == 0 and out:
+            return out
+    return ""
+
+
+def git_dirty_files(path: Path) -> list[str]:
+    code, out, _ = git(path, "status", "--porcelain", "-uall")
+    if code != 0 or not out:
+        return []
+    files = []
+    for line in out.splitlines():
+        entry = line[3:] if len(line) > 3 else line
+        if " -> " in entry:
+            entry = entry.split(" -> ", 1)[1]
+        entry = entry.strip().strip('"')
+        if entry:
+            files.append(entry)
+    return files
+
+
+def git_diff_text(path: Path) -> str:
+    chunks = []
+    code, out, _ = git(path, "diff", "HEAD")
+    if code == 0 and out:
+        chunks.append(out)
+    code, out, _ = git(path, "diff", "--cached")
+    if code == 0 and out:
+        chunks.append(out)
+    code, out, _ = git(path, "diff", "--stat", "HEAD")
+    text = "\n\n".join(chunks) if chunks else (out if code == 0 else "")
+    if len(text) > MAX_DIFF:
+        text = text[:MAX_DIFF] + "\n… (truncated)\n"
+    return text
+
+
+def git_ahead_diff(path: Path, origin: str) -> str:
+    if not origin:
+        return ""
+    code, out, _ = git(path, "diff", f"{origin}...HEAD")
+    if code != 0:
+        return ""
+    if len(out) > MAX_DIFF:
+        return out[:MAX_DIFF] + "\n… (truncated)\n"
+    return out
+
+
+def clone_diff_files(path: Path, source: Path) -> list[str]:
+    if not source.is_dir():
+        return []
+    _, out, _ = run(["diff", "-rq", str(source), str(path)])
+    files = []
+    prefix = str(path) + "/"
+    only_in = "Only in " + str(path)
+    for line in (out or "").splitlines():
+        if line.startswith("Files ") and " and " in line:
+            rest = line.split("Files ", 1)[1]
+            right = rest.split(" and ", 1)[1].split(" differ", 1)[0]
+            if right.startswith(prefix):
+                files.append(right[len(prefix) :])
+        elif line.startswith(only_in):
+            loc = line[len("Only in ") :]
+            folder, name = loc.split(": ", 1)
+            rel = str(Path(folder).relative_to(path) / name) if folder != str(path) else name
+            files.append(rel)
+    return [f for f in files if f != ".git" and not f.startswith(".git/")]
+
+
+def clone_diff_text(path: Path, source: Path, files: list[str]) -> str:
+    chunks = []
+    for rel in files:
+        if rel == "manifest.json":
+            continue
+        left = source / rel
+        right = path / rel
+        if not left.is_file() or not right.is_file():
+            chunks.append(f"--- {rel} (presence changed)\n")
+            continue
+        code, out, _ = run(["diff", "-u", str(left), str(right)])
+        if out:
+            chunks.append(out)
+    text = "\n".join(chunks)
+    if len(text) > MAX_DIFF:
+        text = text[:MAX_DIFF] + "\n… (truncated)\n"
+    return text
+
+
+def slug_for(files: list[str]) -> str:
+    stems = []
+    for f in files:
+        if f == "manifest.json":
+            continue
+        stem = Path(f).name
+        stem = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
+        if stem:
+            stems.append(stem)
+    stems = stems[:2]
+    if not stems:
+        return "local-edits"
+    return "-and-".join(stems)[:60]
+
+
+def summarize_files(files: list[str]) -> str:
+    shown = [f for f in files if f != "manifest.json"] or files
+    if not shown:
+        return "local edits"
+    if len(shown) == 1:
+        return f"local edits to {shown[0]}"
+    if len(shown) == 2:
+        return f"local edits to {shown[0]} and {shown[1]}"
+    return f"local edits to {shown[0]}, {shown[1]}, and {len(shown) - 2} more"
+
+
+def write_record(plugin_id: str, files: list[str], commit: str, diff: str, title_prefix="Local edits"):
+    RECORDS_DIR.mkdir(parents=True, exist_ok=True)
+    plugin_dir = RECORDS_DIR / plugin_id
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    slug = slug_for(files)
+    path = plugin_dir / f"{slug}.md"
+    n = 2
+    while path.exists():
+        path = plugin_dir / f"{slug}-{n}.md"
+        n += 1
+    title = summarize_files(files)
+    title = title[0].upper() + title[1:] if title else title_prefix
+    file_lines = "\n".join(f"  - {f}" for f in files) or "  - ."
+    diff = diff.strip() or "(no textual diff)"
+    body = f"""---
+id: {path.stem}
+plugin: {plugin_id}
+title: {title}
+bootstrapped: true
+applied:
+  commit: {commit}
+  at: {now_iso()}
+files:
+{file_lines}
+---
+
+# {title}
+
+## Goal
+
+Draft — refine with the plugin-customizations skill.
+
+Mechanical summary: {summarize_files(files)}.
+
+## Why / decisions
+
+Unknown. Captured automatically when the plugin-customizations plugin was
+installed, because this checkout differed from upstream.
+
+## Where to look
+
+{chr(10).join(f'- `{f}`' for f in files)}
+
+## Prior art
+
+Captured against `{commit}`. This is an example of the current local tree,
+not a patch to apply blindly.
+
+```diff
+{diff}
+```
+
+## Re-apply notes
+
+Draft. Expand Goal and Why before the next upstream update.
+"""
+    path.write_text(body)
+    return path
+
+
+def sha_match(head: str, applied: str) -> bool:
+    if not head or not applied:
+        return False
+    if applied == "cloned":
+        return head == "cloned"
+    return head.startswith(applied) or applied.startswith(head[: min(len(applied), 7)])
+
+
+def customization_status(rec, head: str, dirty: list[str]) -> str:
+    if rec["bootstrapped"] and rec["draftGoal"]:
+        return "draft"
+    extra = set(dirty) - set(rec["files"])
+    if extra:
+        return "unrecorded"
+    if rec["appliedCommit"] and head and not sha_match(head, rec["appliedCommit"]):
+        return "stale"
+    return "applied"
+
+
+def short(sha: str) -> str:
+    return sha[:7] if sha else ""
+
+
+def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
+    if not path.is_dir() or path.name.startswith("."):
+        return None
+    meta = plugin_manifest(path)
+    pid = meta["id"]
+    if pid == SELF_ID or path.name == SELF_ID:
+        return None
+    kind = "plain"
+    head = ""
+    origin = ""
+    dirty = []
+    ahead = False
+    behind = False
+    bootstrap_diff = ""
+    is_git = (path / ".git").exists()
+    if is_git:
+        kind = "git"
+        if fetch:
+            git(path, "fetch", "--quiet", "origin", timeout=30)
+        head = git_head(path)
+        origin = git_origin(path)
+        dirty = git_dirty_files(path)
+        behind = False
+        if origin and head:
+            code, behind_count, _ = git(path, "rev-list", "--count", f"{head}..{origin}")
+            code2, ahead_count, _ = git(path, "rev-list", "--count", f"{origin}..{head}")
+            try:
+                behind = code == 0 and int(behind_count or "0") > 0
+                ahead = code2 == 0 and int(ahead_count or "0") > 0
+            except ValueError:
+                behind = origin != head
+        if dirty:
+            bootstrap_diff = git_diff_text(path)
+        elif ahead:
+            bootstrap_diff = git_ahead_diff(path, origin)
+            code, out, _ = git(path, "diff", "--name-only", f"{origin}...HEAD")
+            if code == 0:
+                dirty = [line for line in out.splitlines() if line]
+    elif meta["clonedFrom"]:
+        kind = "clone"
+        source = catalog.get(meta["clonedFrom"])
+        if source:
+            dirty = clone_diff_files(path, source)
+            # Ignore clones whose only drift is the clone manifest rewrite.
+            meaningful = [f for f in dirty if f != "manifest.json"]
+            if not meaningful:
+                dirty = []
+            else:
+                bootstrap_diff = clone_diff_text(path, source, dirty)
+                head = "cloned"
+
+    recs = records.get(pid, [])
+    customizations = []
+    recorded_files = set()
+    for rec in recs:
+        status = customization_status(rec, head, dirty)
+        recorded_files.update(rec["files"])
+        customizations.append(
+            {
+                "id": rec["id"],
+                "title": rec["title"],
+                "status": status,
+                "path": rec["path"],
+                "appliedCommit": rec["appliedCommit"],
+                "bootstrapped": rec["bootstrapped"],
+            }
+        )
+    unrecorded = [f for f in dirty if f not in recorded_files]
+    return {
+        "id": pid,
+        "name": meta["name"],
+        "kind": kind,
+        "path": str(path),
+        "head": head,
+        "origin": origin,
+        "ahead": ahead,
+        "behind": behind,
+        "dirty": dirty,
+        "unrecordedFiles": unrecorded,
+        "customizations": customizations,
+        "_bootstrap_diff": bootstrap_diff,
+    }
+
+
+def needs_bootstrap(plugin: dict) -> bool:
+    if plugin["customizations"]:
+        # still bootstrap leftover unrecorded files as a new record
+        return bool(plugin["unrecordedFiles"])
+    return bool(plugin["dirty"]) or plugin["ahead"]
+
+
+def bootstrap(plugins: list[dict]):
+    written = []
+    for plugin in plugins:
+        if not needs_bootstrap(plugin):
+            continue
+        files = plugin["unrecordedFiles"] or plugin["dirty"]
+        if not files:
+            continue
+        commit = short(plugin["head"]) or plugin["head"] or "cloned"
+        path = write_record(
+            plugin["id"],
+            files,
+            commit,
+            plugin.get("_bootstrap_diff") or "",
+        )
+        written.append(str(path))
+    return written
+
+
+def assemble(plugins: list[dict]) -> dict:
+    counts = {
+        "stale": 0,
+        "draft": 0,
+        "unrecorded": 0,
+        "updateAvailable": 0,
+        "applied": 0,
+    }
+    out_plugins = []
+    for plugin in plugins:
+        statuses = [c["status"] for c in plugin["customizations"]]
+        if plugin["unrecordedFiles"] and "unrecorded" not in statuses:
+            counts["unrecorded"] += 1
+        for status in statuses:
+            if status in counts:
+                counts[status] += 1
+        if plugin.get("behind"):
+            counts["updateAvailable"] += 1
+        public = {k: v for k, v in plugin.items() if not k.startswith("_")}
+        out_plugins.append(public)
+    attention = any(
+        counts[k] > 0 for k in ("stale", "draft", "unrecorded", "updateAvailable")
+    )
+    return {
+        "ok": True,
+        "attention": attention,
+        "selfId": SELF_ID,
+        "recordsDir": str(RECORDS_DIR),
+        "counts": counts,
+        "plugins": out_plugins,
+    }
+
+
+def notify_if_needed(payload: dict):
+    prev = ""
+    if NOTIFY_STATE.is_file():
+        prev = NOTIFY_STATE.read_text().strip()
+    current = "1" if payload["attention"] else "0"
+    RECORDS_DIR.mkdir(parents=True, exist_ok=True)
+    NOTIFY_STATE.write_text(current + "\n")
+    if current != "1" or prev == "1":
+        return
+    counts = payload["counts"]
+    bits = []
+    if counts["stale"]:
+        bits.append(f"{counts['stale']} to re-apply")
+    if counts["draft"]:
+        bits.append(f"{counts['draft']} draft")
+    if counts["unrecorded"]:
+        bits.append(f"{counts['unrecorded']} unrecorded")
+    if counts["updateAvailable"]:
+        bits.append(f"{counts['updateAvailable']} updates")
+    detail = ", ".join(bits) if bits else "Open the panel for details."
+    run(
+        [
+            "omarchy-notification-send",
+            "-g",
+            "󰐕",
+            "-u",
+            "normal",
+            "--app-name",
+            "Plugin customizations",
+            "Plugin customizations need attention",
+            detail,
+            "--exec",
+            "omarchy",
+            "agent",
+            "prompt",
+            REAPPLY_PROMPT,
+        ]
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--bootstrap", action="store_true")
+    parser.add_argument("--fetch", action="store_true")
+    parser.add_argument("--notify", action="store_true")
+    args = parser.parse_args()
+
+    catalog = catalog_source_dirs()
+    records = load_records()
+    plugins = []
+    if PLUGINS_DIR.is_dir():
+        for path in sorted(PLUGINS_DIR.iterdir()):
+            scanned = scan_plugin(path, records, catalog, fetch=args.fetch)
+            if scanned:
+                plugins.append(scanned)
+
+    if args.bootstrap:
+        bootstrap(plugins)
+        records = load_records()
+        plugins = []
+        if PLUGINS_DIR.is_dir():
+            for path in sorted(PLUGINS_DIR.iterdir()):
+                scanned = scan_plugin(path, records, catalog, fetch=False)
+                if scanned:
+                    plugins.append(scanned)
+
+    payload = assemble(plugins)
+    if args.notify:
+        notify_if_needed(payload)
+    json.dump(payload, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

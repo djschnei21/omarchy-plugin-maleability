@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "djschnei21.plugin-customizations",
+  "name": "Plugin customizations",
+  "version": "1.0.0",
+  "author": "djschnei21",
+  "license": "MIT",
+  "description": "Track local Omarchy plugin tweaks, notify when an update would wipe them, and re-apply them through your default agent.",
+  "homepage": "https://github.com/djschnei21/omarchy-plugin-customizations",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Plugin customizations",
+    "description": "Drift, drafts, and re-apply for local plugin customizations",
+    "category": "System",
+    "aliases": ["plugin customizations", "plugin drift", "re-apply plugins"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 120
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "defaultValue": 120
+      }
+    ]
+  }
+}

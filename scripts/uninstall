@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Tear down skill links, the intent store, and this plugin checkout.
+set -euo pipefail
+
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PLUGIN_ID="djschnei21.plugin-customizations"
+RECORDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugin-customizations"
+
+skill_dirs=(
+  "$HOME/.agents/skills/plugin-customizations"
+  "$HOME/.claude/skills/plugin-customizations"
+  "$HOME/.codex/skills/plugin-customizations"
+  "$HOME/.pi/agent/skills/plugin-customizations"
+  "$HOME/.grok/skills/plugin-customizations"
+)
+
+for link in "${skill_dirs[@]}"; do
+  if [[ -L $link ]]; then
+    target=$(readlink -f "$link" || true)
+    plugin=$(readlink -f "$PLUGIN_DIR" || true)
+    if [[ $target == "$plugin" ]]; then
+      rm -f "$link"
+    fi
+  fi
+done
+
+rm -rf "$RECORDS_DIR"
+
+if command -v omarchy-plugin-disable >/dev/null 2>&1; then
+  omarchy-plugin-disable "$PLUGIN_ID" >/dev/null 2>&1 || true
+fi
+if command -v omarchy-shell >/dev/null 2>&1; then
+  omarchy-shell shell setPluginEnabled "$PLUGIN_ID" false >/dev/null 2>&1 || true
+  omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+fi
+
+# Delete the checkout last; this script lives inside it.
+rm -rf "$PLUGIN_DIR"
+
+if command -v omarchy-shell >/dev/null 2>&1; then
+  omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+fi
+
+echo "Removed $PLUGIN_ID, skill links, and recorded customizations."
