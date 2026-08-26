@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SELF_ID = "djschnei21.plugin-customizations"
-SKILL_NAME = "plugin-customizations"
+SKILL_NAME = "plugin-maleability"
 PLUGINS_DIR = Path.home() / ".config/omarchy/plugins"
 RECORDS_DIR = Path.home() / ".config/omarchy/plugin-customizations"
 NOTIFY_STATE = RECORDS_DIR / ".notify-state"
@@ -30,7 +30,7 @@ SELF_DIR = Path(__file__).resolve().parent
 MAX_DIFF = 8000
 REAPPLY_PROMPT = (
     "Re-apply recorded Omarchy plugin customizations. "
-    "Use the plugin-customizations skill."
+    "Use the plugin-maleability skill."
 )
 
 
@@ -366,13 +366,13 @@ files:
 
 ## Goal
 
-Draft — refine with the plugin-customizations skill.
+Draft — refine with the plugin-maleability skill.
 
 Mechanical summary: {summarize_files(files)}.
 
 ## Why / decisions
 
-Unknown. Captured automatically when the plugin-customizations plugin was
+Unknown. Captured automatically when Plugin Maleability was
 installed, because this checkout differed from upstream.
 
 ## Where to look
@@ -741,12 +741,12 @@ def notify_if_needed(payload: dict):
         [
             "omarchy-notification-send",
             "-g",
-            "󰐕",
+            "󰠱",
             "-u",
             "normal",
             "--app-name",
-            "Plugin customizations",
-            "Plugin customizations need attention",
+            "Plugin Maleability",
+            "Plugin Maleability needs attention",
             detail + ". Open the panel to view or apply each one.",
             "--exec",
             "omarchy-shell",

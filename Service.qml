@@ -29,10 +29,10 @@ Item {
     var id = String((item && item.customizationId) || "")
     var status = String((item && item.status) || "")
     if (status === "draft")
-      return "Refine the draft Omarchy plugin customization '" + id + "' on plugin '" + plugin + "'. Use the plugin-customizations skill. Only this customization."
+      return "Refine the draft Omarchy plugin customization '" + id + "' on plugin '" + plugin + "'. Use the plugin-maleability skill. Only this customization."
     if (status === "unrecorded")
-      return "Record the unrecorded local edits on Omarchy plugin '" + plugin + "'. Use the plugin-customizations skill. Do not re-apply other customizations."
-    return "Re-apply the Omarchy plugin customization '" + id + "' on plugin '" + plugin + "'. Use the plugin-customizations skill. Only this customization — do not re-apply others."
+      return "Record the unrecorded local edits on Omarchy plugin '" + plugin + "'. Use the plugin-maleability skill. Do not re-apply other customizations."
+    return "Re-apply the Omarchy plugin customization '" + id + "' on plugin '" + plugin + "'. Use the plugin-maleability skill. Only this customization — do not re-apply others."
   }
 
   function intSetting(name, fallback, minimum, maximum) {
@@ -97,7 +97,7 @@ Item {
     if (id === "" || request === "")
       return
     Quickshell.execDetached(["omarchy-agent-prompt",
-      "On Omarchy plugin '" + id + "', implement this customization and record it with the plugin-customizations skill (enabled: true). Request: " + request])
+      "On Omarchy plugin '" + id + "', implement this customization and record it with the plugin-maleability skill (enabled: true). Request: " + request])
   }
 
   function launchReapplyPlugin(pluginId, ids) {
@@ -112,7 +112,7 @@ Item {
       ? " Re-apply only these customizations, in order: " + list.join(", ") + "."
       : " Re-apply its recorded customizations one by one."
     Quickshell.execDetached(["omarchy-agent-prompt",
-      "Plugin '" + id + "' is reset to current upstream (HEAD, not a fetch)." + scope + " Use the plugin-customizations skill. Skip drafts that still have a placeholder Goal. Set enabled: true on each record you apply. Do not git reset; the helper already did."])
+      "Plugin '" + id + "' is reset to current upstream (HEAD, not a fetch)." + scope + " Use the plugin-maleability skill. Skip drafts that still have a placeholder Goal. Set enabled: true on each record you apply. Do not git reset; the helper already did."])
   }
 
   function runAction(kind, pluginId, thenReapply) {

@@ -176,8 +176,8 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰐕"
-    tooltipText: model.attention ? "Plugin customizations need attention" : "Plugin customizations"
+    text: "󰠱"
+    tooltipText: model.attention ? "Plugin Maleability needs attention" : "Plugin Maleability"
     active: model.attention
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton || buttonCode === Qt.MiddleButton) model.refresh(true)
@@ -229,7 +229,7 @@ Panel {
             title: {
               if (root.page === "item" && root.selectedItem) return root.selectedItem.title
               if (root.page === "plugin" && root.selectedPlugin) return root.selectedPlugin.name
-              return "Plugin customizations"
+              return "Plugin Maleability"
             }
             meta: {
               if (model.installing) return "Installing skill links…"
@@ -245,7 +245,7 @@ Panel {
             fontFamily: root.fontFamily
             iconComponent: Component {
               Text {
-                text: "󰐕"
+                text: "󰠱"
                 color: model.attention ? root.urgent : root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.display

@@ -1,7 +1,7 @@
-# Plugin customizations
+# Plugin Maleability
 
 An Omarchy bar widget plus an agent skill that keep local tweaks to other
-shell plugins after those plugins update.
+shell plugins after those plugins update — a play on the malleable computer.
 
 Third-party plugins are git checkouts. `omarchy plugin update` fast-forwards
 them and will not keep uncommitted edits. This plugin records **why** you

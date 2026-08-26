@@ -1,15 +1,16 @@
 ---
-name: plugin-customizations
+name: plugin-maleability
 description: >
-  Record and re-apply local customizations to Omarchy shell plugins after
-  those plugins update. Use when the user customizes a third-party or cloned
-  plugin, when a plugin was updated and tweaks disappeared, when the plugin
-  customizations bar icon is lit, or when they say re-apply plugin
-  customizations. Triggers: customize this plugin, plugin updated, re-apply
-  customizations, unread-only icon, plugin drift, reset to upstream.
+  Companion skill for the Plugin Maleability Omarchy bar widget. That widget
+  launches the user's default agent with prompts that name this skill
+  (Customize, Refine, Re-apply, and the rest of its buttons). Users also
+  invoke it themselves when they want Maleability to record, refine, re-apply,
+  reset, update, or delete a local Omarchy shell-plugin customization. Use
+  whenever Plugin Maleability is in play, including /plugin-maleability.
+  Do not use for writing a new plugin from scratch.
 ---
 
-# Plugin customizations
+# Plugin Maleability
 
 Treat `~/.config/omarchy/plugins/<id>/` as disposable. Intent lives in
 `~/.config/omarchy/plugin-customizations/<id>/<slug>.md`. Never commit into a

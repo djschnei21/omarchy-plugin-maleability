@@ -15,7 +15,13 @@ skill_dirs=(
 
 for dir in "${skill_dirs[@]}"; do
   mkdir -p "$dir"
-  ln -sfn "$PLUGIN_DIR" "$dir/plugin-customizations"
+  ln -sfn "$PLUGIN_DIR" "$dir/plugin-maleability"
+  if [[ -L $dir/plugin-customizations ]]; then
+    old=$(readlink -f "$dir/plugin-customizations" || true)
+    if [[ $old == "$(readlink -f "$PLUGIN_DIR")" ]]; then
+      rm -f "$dir/plugin-customizations"
+    fi
+  fi
 done
 
 exec python3 "$STATUS" --bootstrap "$@"

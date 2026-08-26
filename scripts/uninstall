@@ -7,6 +7,11 @@ PLUGIN_ID="djschnei21.plugin-customizations"
 RECORDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugin-customizations"
 
 skill_dirs=(
+  "$HOME/.agents/skills/plugin-maleability"
+  "$HOME/.claude/skills/plugin-maleability"
+  "$HOME/.codex/skills/plugin-maleability"
+  "$HOME/.pi/agent/skills/plugin-maleability"
+  "$HOME/.grok/skills/plugin-maleability"
   "$HOME/.agents/skills/plugin-customizations"
   "$HOME/.claude/skills/plugin-customizations"
   "$HOME/.codex/skills/plugin-customizations"
