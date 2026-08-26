@@ -17,8 +17,7 @@ Panel {
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   property bool uninstallArmed: false
-  property string selectedKey: ""
-  readonly property var selected: findRow(selectedKey)
+  property var selected: null
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -96,19 +95,6 @@ Panel {
     return rows
   }
 
-  function findRow(key) {
-    if (!key)
-      return null
-    var kinds = ["stale", "draft", "unrecorded", "behind", "applied"]
-    for (var i = 0; i < kinds.length; i++) {
-      var rows = root.rowsFor(kinds[i])
-      for (var j = 0; j < rows.length; j++)
-        if (rows[j].key === key)
-          return rows[j]
-    }
-    return null
-  }
-
   function actionLabel(item) {
     if (!item)
       return ""
@@ -122,7 +108,7 @@ Panel {
   }
 
   function selectRow(item) {
-    selectedKey = item && item.key ? item.key : ""
+    selected = item || null
     if (panelFlick)
       panelFlick.contentY = 0
   }
@@ -130,7 +116,7 @@ Panel {
   onOpenedChanged: if (opened) {
     uninstallArmed = false
     uninstallArmTimer.stop()
-    selectedKey = ""
+    selected = null
     if (panelFlick) panelFlick.contentY = 0
     model.refresh(true)
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -175,7 +161,7 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       onCloseRequested: {
-        if (root.selectedKey !== "") {
+        if (root.selected) {
           root.selectRow(null)
           return
         }
@@ -231,7 +217,7 @@ Panel {
           }
 
           Row {
-            visible: root.selectedKey === ""
+            visible: !root.selected
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(12)
             Button {
@@ -351,27 +337,22 @@ Panel {
           }
 
           StatusSection {
-            visible: root.selectedKey === ""
             title: "NEEDS RE-APPLY"
             model: root.rowsFor("stale")
           }
           StatusSection {
-            visible: root.selectedKey === ""
             title: "DRAFTS FROM INSTALL"
             model: root.rowsFor("draft")
           }
           StatusSection {
-            visible: root.selectedKey === ""
             title: "UNRECORDED EDITS"
             model: root.rowsFor("unrecorded")
           }
           StatusSection {
-            visible: root.selectedKey === ""
             title: "UPDATES AVAILABLE"
             model: root.rowsFor("behind")
           }
           StatusSection {
-            visible: root.selectedKey === ""
             title: "APPLIED"
             emptyText: "No recorded customizations yet."
             model: root.rowsFor("applied")
@@ -397,7 +378,7 @@ Panel {
     property var model: []
     property string emptyText: ""
     property bool showWhenEmpty: false
-    visible: (model.length > 0 || (showWhenEmpty && emptyText !== "")) && root.selectedKey === ""
+    visible: !root.selected && (model.length > 0 || (showWhenEmpty && emptyText !== ""))
     width: parent ? parent.width : 0
     spacing: Style.space(8)
 
@@ -418,23 +399,26 @@ Panel {
       horizontalAlignment: Text.AlignHCenter
     }
     Repeater {
-      model: section.model
-      CursorSurface {
+      model: section.model ? section.model.length : 0
+      MouseArea {
         id: row
-        required property var modelData
-        width: parent.width
-        foreground: root.foreground
-        implicitHeight: rowLabels.implicitHeight + Style.space(16)
-        hasCursor: false
+        required property int index
+        readonly property var item: section.model[index]
+        width: section.width
+        implicitHeight: Math.max(Style.space(44), labels.implicitHeight + Style.space(16))
+        height: implicitHeight
+        hoverEnabled: true
+        preventStealing: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.selectRow(row.item)
 
-        MouseArea {
+        Rectangle {
           anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onClicked: root.selectRow(row.modelData)
+          radius: Style.cornerRadius
+          color: row.containsMouse ? Style.hoverFillFor(root.foreground, Color.accent) : "transparent"
         }
         Column {
-          id: rowLabels
+          id: labels
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
@@ -443,7 +427,7 @@ Panel {
           spacing: Style.space(1)
           Text {
             width: parent.width
-            text: row.modelData.name || row.modelData.pluginId
+            text: row.item ? (row.item.name || row.item.pluginId) : ""
             textFormat: Text.PlainText
             color: root.foreground
             font.family: root.fontFamily
@@ -452,12 +436,12 @@ Panel {
           }
           Text {
             width: parent.width
-            text: row.modelData.title + (row.modelData.detail ? " · " + row.modelData.detail : "")
+            text: row.item ? (row.item.title + (row.item.detail ? " · " + row.item.detail : "")) : ""
             textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
+            elide: Text.ElideRight
           }
         }
         Text {
