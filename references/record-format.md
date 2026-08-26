@@ -31,3 +31,7 @@ files:
 
 Required sections: **Goal**, **Why / decisions**, **Where to look**, **Prior art**,
 **Re-apply notes**.
+
+**Re-apply notes** must say how to tell the Goal holds on the *running* plugin
+(what to look at on the bar or panel, which IPC if any, what the idle/empty
+state looks like)—not only which source string to grep.

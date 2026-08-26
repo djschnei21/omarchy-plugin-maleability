@@ -29,27 +29,43 @@ python3 ~/.config/omarchy/plugins/djschnei21.plugin-customizations/status
 Do **not** run git reset yourself when the prompt says the plugin is already reset.
 
 Record format: `references/record-format.md`. Frontmatter `enabled: true|false`
-(missing means true). After a successful apply set `enabled: true` and
-`applied.commit` to current HEAD.
+(missing means true). Set `enabled: true` only after **Verify live**.
 
 ## Scope
 
 The panel names a plugin id and sometimes a customization id. Work only that
 scope. Do not walk every plugin unless asked to re-apply all.
 
+## Verify live
+
+Source edits and plugin tests are not enough. The **Goal** is user-visible
+behavior on the running plugin. Before `enabled: true`:
+
+1. Make sure the live plugin is serving this checkout (`omarchy-shell shell
+   rescanPlugins`, or `omarchy restart shell` if a reload looks stale).
+2. Observe the Goal the way a user would: bar chrome, the plugin panel,
+   `omarchy-shell <plugin-id> …` if it exposes state. Use **Re-apply notes**
+   when they say how to tell it holds; otherwise derive checks from the Goal.
+3. Confirm both sides you can see: the condition that should change, and the
+   condition that should not (empty, idle, off).
+4. If you cannot observe it, say so and leave `enabled: false` until the user
+   confirms or you find an observable. Do not treat a matching source string
+   as success.
+
 ## Customize (user described a change)
 
 1. Implement the request in `~/.config/omarchy/plugins/<id>/`.
-2. Write a new record with Goal, Why, Where to look, Prior art, `enabled: true`,
-   `bootstrapped: false`, `applied.commit` = HEAD.
-3. Do not commit the plugin repo.
+2. Write the record (Goal, Why, Where to look, Prior art, `bootstrapped: false`).
+3. **Verify live**, then set `enabled: true` and `applied.commit` to HEAD.
+4. Do not commit the plugin repo.
 
 ## Record (after a manual tweak)
 
 Same as Customize, from `git diff HEAD` (or clone-vs-source).
 
 If `status` reports `draft`, fill Goal/Why/Where-to-look and set
-`bootstrapped: false`.
+`bootstrapped: false`. Docs-only refine does not need Verify live unless you
+also changed plugin source.
 
 ## Re-apply one customization
 
@@ -58,7 +74,8 @@ If `status` reports `draft`, fill Goal/Why/Where-to-look and set
 3. Re-implement that record's **Goal** on the current tree. Prior art is a map,
    not a patch.
 4. Run the plugin's tests if present.
-5. Set `enabled: true`, update `applied.commit` / files / prior art.
+5. **Verify live**, then set `enabled: true` and update `applied.commit` /
+   files / prior art.
 6. If upstream removed the feature, leave the record, set `enabled: false`, say so.
 
 ## Re-apply a plugin (after helper reset)
