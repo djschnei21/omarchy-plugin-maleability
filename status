@@ -7,6 +7,8 @@ Prints one JSON object. Optional flags:
   --notify              desktop-notify on a false→true attention transition
   --reset PLUGIN_ID     restore checkout to HEAD/clone source; mark records unapplied
   --update PLUGIN_ID    fetch and reset to origin; mark records unapplied
+  --delete PLUGIN_ID CUSTOMIZATION_ID
+                        revert files if the record is enabled, then delete it
 """
 from __future__ import annotations
 
@@ -489,6 +491,60 @@ def reset_checkout(path: Path, catalog) -> str:
     return ""
 
 
+def restore_record_files(plugin_dir: Path, rec: dict, catalog) -> str:
+    files = [f for f in rec.get("files") or [] if f and f != "manifest.json"]
+    if not files:
+        return ""
+    if (plugin_dir / ".git").exists():
+        tracked, extra = [], []
+        for rel in files:
+            code, _, _ = git(plugin_dir, "ls-files", "--error-unmatch", rel)
+            if code == 0:
+                tracked.append(rel)
+            else:
+                extra.append(rel)
+        if tracked:
+            code, _, err = git(plugin_dir, "checkout", "HEAD", "--", *tracked)
+            if code != 0:
+                return err or "git checkout failed"
+        for rel in extra:
+            dest = plugin_dir / rel
+            if dest.is_file():
+                dest.unlink()
+        return ""
+    meta = plugin_manifest(plugin_dir)
+    source = catalog.get(meta.get("clonedFrom") or "")
+    if not source or not source.is_dir():
+        return "not a git checkout and no clone source"
+    for rel in files:
+        src = source / rel
+        dest = plugin_dir / rel
+        if src.is_file():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(src.read_bytes())
+        elif dest.is_file():
+            dest.unlink()
+    return ""
+
+
+def delete_customization(plugin_id: str, customization_id: str, catalog) -> str:
+    recs = load_records().get(plugin_id, [])
+    rec = next((r for r in recs if r["id"] == customization_id), None)
+    if not rec:
+        return f"customization not found: {customization_id}"
+    plugin_dir = find_plugin_dir(plugin_id)
+    if rec.get("enabled", True):
+        if not plugin_dir:
+            return f"plugin not found: {plugin_id}"
+        err = restore_record_files(plugin_dir, rec, catalog)
+        if err:
+            return err
+    path = Path(rec["path"])
+    if path.is_file():
+        path.unlink()
+    return ""
+
+
 def update_checkout(path: Path) -> str:
     if not (path / ".git").exists():
         return "not a git checkout"
@@ -700,9 +756,17 @@ def main():
     parser.add_argument("--notify", action="store_true")
     parser.add_argument("--reset", metavar="PLUGIN_ID")
     parser.add_argument("--update", metavar="PLUGIN_ID")
+    parser.add_argument("--delete", nargs=2, metavar=("PLUGIN_ID", "CUSTOMIZATION_ID"))
     args = parser.parse_args()
 
     catalog = catalog_source_dirs()
+
+    if args.delete:
+        err = delete_customization(args.delete[0], args.delete[1], catalog)
+        if err:
+            json.dump({"ok": False, "error": err}, sys.stdout)
+            sys.stdout.write("\n")
+            return 1
 
     if args.reset or args.update:
         plugin_id = args.reset or args.update

@@ -119,6 +119,20 @@ Item {
     actionProcess.running = true
   }
 
+  function deleteCustomization(pluginId, customizationId) {
+    if (actionProcess.running || scanProcess.running)
+      return
+    var id = String(pluginId || "")
+    var cid = String(customizationId || "")
+    if (id === "" || cid === "")
+      return
+    acting = true
+    reapplyAfterAction = false
+    actionPluginId = id
+    actionProcess.command = ["python3", helperPath(), "--delete", id, cid]
+    actionProcess.running = true
+  }
+
   function openRecord(path) {
     var value = String(path || "")
     if (value === "")

@@ -70,3 +70,11 @@ with a placeholder Goal, re-apply one by one as above.
 
 The widget helper does this. Do not delete records. `enabled: false` means
 unapplied, not gone.
+
+## Delete
+
+The panel **Delete** button runs `status --delete PLUGIN_ID CUSTOMIZATION_ID`.
+If the record is enabled it restores those files to upstream (or removes
+files that only existed as the customization), then deletes the markdown.
+If it is already unapplied it only deletes the markdown. Do not do this
+yourself unless asked.

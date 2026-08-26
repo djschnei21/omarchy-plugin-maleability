@@ -25,6 +25,7 @@ Panel {
   property bool resetArmed: false
   property bool reapplyArmed: false
   property bool updateOpen: false
+  property bool deleteArmed: false
   property string customizeText: ""
 
   implicitWidth: button.implicitWidth
@@ -102,6 +103,7 @@ Panel {
     resetArmed = false
     reapplyArmed = false
     updateOpen = false
+    deleteArmed = false
     customizeText = ""
     if (panelFlick) panelFlick.contentY = 0
   }
@@ -113,6 +115,7 @@ Panel {
     resetArmed = false
     reapplyArmed = false
     updateOpen = false
+    deleteArmed = false
     customizeText = ""
     if (panelFlick) panelFlick.contentY = 0
   }
@@ -120,6 +123,7 @@ Panel {
   function goItem(item) {
     selectedItem = item
     page = item ? "item" : "plugin"
+    deleteArmed = false
     if (panelFlick) panelFlick.contentY = 0
   }
 
@@ -128,9 +132,11 @@ Panel {
     resetArmed = false
     reapplyArmed = false
     updateOpen = false
+    deleteArmed = false
     uninstallArmTimer.stop()
     resetArmTimer.stop()
     reapplyArmTimer.stop()
+    deleteArmTimer.stop()
   }
 
   onOpenedChanged: if (opened) {
@@ -602,6 +608,24 @@ Panel {
                   root.close()
                 }
               }
+              Button {
+                text: root.deleteArmed ? "Confirm delete?" : "Delete"
+                enabled: !model.acting
+                bordered: true
+                foreground: root.deleteArmed ? root.urgent : root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: {
+                  if (!root.deleteArmed) {
+                    root.deleteArmed = true
+                    deleteArmTimer.restart()
+                    return
+                  }
+                  root.deleteArmed = false
+                  model.deleteCustomization(root.selectedPlugin.id, root.selectedItem.id)
+                }
+              }
             }
           }
         }
@@ -612,4 +636,5 @@ Panel {
   Timer { id: uninstallArmTimer; interval: 4000; repeat: false; onTriggered: root.uninstallArmed = false }
   Timer { id: resetArmTimer; interval: 4000; repeat: false; onTriggered: root.resetArmed = false }
   Timer { id: reapplyArmTimer; interval: 4000; repeat: false; onTriggered: root.reapplyArmed = false }
+  Timer { id: deleteArmTimer; interval: 4000; repeat: false; onTriggered: root.deleteArmed = false }
 }
