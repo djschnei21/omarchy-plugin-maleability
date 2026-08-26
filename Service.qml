@@ -18,6 +18,9 @@ Item {
   property bool refreshQueued: false
   property bool fetchNext: false
   property bool installedOnce: false
+  property bool acting: false
+  property bool reapplyAfterAction: false
+  property string actionPluginId: ""
 
   readonly property int refreshIntervalSec: intSetting("refreshIntervalSec", 120, 30, 3600)
   function itemPrompt(item) {
@@ -51,7 +54,7 @@ Item {
   }
 
   function refresh(fetch) {
-    if (scanProcess.running || installProcess.running) {
+    if (scanProcess.running || installProcess.running || actionProcess.running) {
       refreshQueued = true
       fetchNext = fetchNext || !!fetch
       return
@@ -84,6 +87,36 @@ Item {
     if (!item)
       return
     Quickshell.execDetached(["omarchy-agent-prompt", itemPrompt(item)])
+  }
+
+  function launchCustomize(pluginId, text) {
+    var request = String(text || "").trim()
+    var id = String(pluginId || "")
+    if (id === "" || request === "")
+      return
+    Quickshell.execDetached(["omarchy-agent-prompt",
+      "On Omarchy plugin '" + id + "', implement this customization and record it with the plugin-customizations skill (enabled: true). Request: " + request])
+  }
+
+  function launchReapplyPlugin(pluginId) {
+    var id = String(pluginId || "")
+    if (id === "")
+      return
+    Quickshell.execDetached(["omarchy-agent-prompt",
+      "Plugin '" + id + "' is reset to upstream. Re-apply its recorded customizations one by one using the plugin-customizations skill. Skip drafts that still have a placeholder Goal. Set enabled: true on each record you apply."])
+  }
+
+  function runAction(kind, pluginId, thenReapply) {
+    if (actionProcess.running || scanProcess.running)
+      return
+    var id = String(pluginId || "")
+    if (id === "" || (kind !== "reset" && kind !== "update"))
+      return
+    acting = true
+    reapplyAfterAction = thenReapply === true
+    actionPluginId = id
+    actionProcess.command = ["python3", helperPath(), kind === "update" ? "--update" : "--reset", id]
+    actionProcess.running = true
   }
 
   function openRecord(path) {
@@ -166,5 +199,35 @@ Item {
     id: uninstallProcess
     running: false
     command: []
+  }
+
+  Process {
+    id: actionProcess
+    running: false
+    command: []
+    onExited: function() {
+      root.acting = false
+      var stdout = String(actionOut.text || "")
+      var ok = true
+      if (stdout.trim() !== "") {
+        root.apply(stdout)
+        try {
+          var data = JSON.parse(stdout)
+          if (data.ok === false)
+            ok = false
+        } catch (error) {
+        }
+      }
+      if (root.reapplyAfterAction && ok)
+        root.launchReapplyPlugin(root.actionPluginId)
+      root.reapplyAfterAction = false
+      root.actionPluginId = ""
+      Qt.callLater(function() { root.refresh(false) })
+    }
+    stdout: StdioCollector {
+      id: actionOut
+      waitForEnd: true
+    }
+    stderr: StdioCollector { waitForEnd: true }
   }
 }

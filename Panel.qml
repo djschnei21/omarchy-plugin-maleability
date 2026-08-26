@@ -16,135 +16,123 @@ Panel {
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
+
+  property string page: "home"
+  property var selectedPlugin: null
+  property var selectedItem: null
+  property var pluginIds: []
   property bool uninstallArmed: false
-  property var selected: null
-  property var itemMap: ({})
-  property var staleKeys: []
-  property var draftKeys: []
-  property var unrecordedKeys: []
-  property var behindKeys: []
-  property var appliedKeys: []
+  property bool resetArmed: false
+  property bool reapplyArmed: false
+  property bool updateOpen: false
+  property string customizeText: ""
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  function rowFromCustomization(plugin, item) {
-    return {
-      key: plugin.id + ":" + item.id,
-      kind: "customization",
-      status: item.status,
-      pluginId: plugin.id,
-      name: plugin.name,
-      customizationId: item.id,
-      title: item.title,
-      path: item.path || "",
-      goal: item.goal || "",
-      why: item.why || "",
-      files: item.files || [],
-      appliedCommit: item.appliedCommit || "",
-      head: plugin.head || "",
-      detail: "applied " + String(item.appliedCommit || "").slice(0, 7) +
-        (plugin.head ? " · HEAD " + String(plugin.head).slice(0, 7) : "")
+  function findPlugin(id) {
+    var list = model.plugins || []
+    for (var i = 0; i < list.length; i++)
+      if (list[i].id === id)
+        return list[i]
+    return null
+  }
+
+  function rebuild() {
+    var ids = []
+    var list = model.plugins || []
+    for (var i = 0; i < list.length; i++)
+      ids.push(list[i].id)
+    pluginIds = ids
+    if (selectedPlugin) {
+      var next = findPlugin(selectedPlugin.id)
+      selectedPlugin = next
+      if (!next) {
+        page = "home"
+        selectedItem = null
+      } else if (selectedItem) {
+        var kept = null
+        var recs = next.customizations || []
+        for (var j = 0; j < recs.length; j++)
+          if (recs[j].id === selectedItem.id)
+            kept = recs[j]
+        selectedItem = kept
+        if (!kept && page === "item")
+          page = "plugin"
+      }
     }
   }
 
-  function rowsFor(kind) {
-    var rows = []
-    var plugins = model.plugins || []
-    for (var i = 0; i < plugins.length; i++) {
-      var plugin = plugins[i]
-      var list = plugin.customizations || []
-      for (var j = 0; j < list.length; j++) {
-        if (list[j].status === kind)
-          rows.push(root.rowFromCustomization(plugin, list[j]))
-      }
-      if (kind === "unrecorded" && (plugin.unrecordedFiles || []).length > 0) {
-        var already = false
-        for (var k = 0; k < list.length; k++)
-          if (list[k].status === "unrecorded") already = true
-        if (!already)
-          rows.push({
-            key: plugin.id + ":unrecorded",
-            kind: "unrecorded",
-            status: "unrecorded",
-            pluginId: plugin.id,
-            name: plugin.name,
-            customizationId: "",
-            title: plugin.unrecordedFiles.length + " unrecorded file" + (plugin.unrecordedFiles.length === 1 ? "" : "s"),
-            path: "",
-            goal: "These local edits are not in a customization record yet.",
-            why: "",
-            files: plugin.unrecordedFiles,
-            appliedCommit: "",
-            head: plugin.head || "",
-            detail: plugin.unrecordedFiles.slice(0, 3).join(", ")
-          })
-      }
-      if (kind === "behind" && plugin.behind)
-        rows.push({
-          key: plugin.id + ":behind",
-          kind: "behind",
-          status: "behind",
-          pluginId: plugin.id,
-          name: plugin.name,
-          customizationId: "",
-          title: "Upstream has new commits",
-          path: "",
-          goal: "This plugin can be updated. Customizations are listed separately — apply each one after the update.",
-          why: "",
-          files: [],
-          appliedCommit: "",
-          head: plugin.head || "",
-          detail: "HEAD " + String(plugin.head || "").slice(0, 7) + " · origin " + String(plugin.origin || "").slice(0, 7)
-        })
+  function pluginSummary(p) {
+    if (!p)
+      return ""
+    var applied = 0, unapplied = 0, draft = 0, stale = 0
+    var recs = p.customizations || []
+    for (var i = 0; i < recs.length; i++) {
+      var s = recs[i].status
+      if (s === "applied") applied++
+      else if (s === "unapplied") unapplied++
+      else if (s === "draft") draft++
+      else if (s === "stale") stale++
     }
-    return rows
+    var bits = []
+    if (stale) bits.push(stale + " stale")
+    if (applied) bits.push(applied + " applied")
+    if (unapplied) bits.push(unapplied + " unapplied")
+    if (draft) bits.push(draft + " draft")
+    if (p.behind) bits.push("update available")
+    if (bits.length === 0) return "clean"
+    return bits.join(" · ")
   }
 
-  function actionLabel(item) {
-    if (!item)
-      return ""
-    if (item.status === "draft")
-      return "Refine"
-    if (item.status === "unrecorded")
-      return "Record"
-    if (item.status === "behind")
-      return ""
+  function itemActionLabel(item) {
+    if (!item) return ""
+    if (item.status === "draft") return "Refine"
     return "Re-apply"
   }
 
-  function selectRow(item) {
-    selected = item || null
-    if (panelFlick)
-      panelFlick.contentY = 0
+  function goHome() {
+    page = "home"
+    selectedPlugin = null
+    selectedItem = null
+    resetArmed = false
+    reapplyArmed = false
+    updateOpen = false
+    customizeText = ""
+    if (panelFlick) panelFlick.contentY = 0
   }
 
-  function rebuildRows() {
-    var map = {}
-    function take(kind) {
-      var rows = root.rowsFor(kind)
-      var keys = []
-      for (var i = 0; i < rows.length; i++) {
-        map[rows[i].key] = rows[i]
-        keys.push(rows[i].key)
-      }
-      return keys
-    }
-    staleKeys = take("stale")
-    draftKeys = take("draft")
-    unrecordedKeys = take("unrecorded")
-    behindKeys = take("behind")
-    appliedKeys = take("applied")
-    itemMap = map
+  function goPlugin(id) {
+    selectedPlugin = findPlugin(id)
+    selectedItem = null
+    page = selectedPlugin ? "plugin" : "home"
+    resetArmed = false
+    reapplyArmed = false
+    updateOpen = false
+    customizeText = ""
+    if (panelFlick) panelFlick.contentY = 0
+  }
+
+  function goItem(item) {
+    selectedItem = item
+    page = item ? "item" : "plugin"
+    if (panelFlick) panelFlick.contentY = 0
+  }
+
+  function clearArms() {
+    uninstallArmed = false
+    resetArmed = false
+    reapplyArmed = false
+    updateOpen = false
+    uninstallArmTimer.stop()
+    resetArmTimer.stop()
+    reapplyArmTimer.stop()
   }
 
   onOpenedChanged: if (opened) {
-    uninstallArmed = false
-    uninstallArmTimer.stop()
-    selected = null
-    if (panelFlick) panelFlick.contentY = 0
+    clearArms()
+    goHome()
     model.refresh(true)
-    root.rebuildRows()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -152,8 +140,8 @@ Panel {
 
   Connections {
     target: model
-    function onPluginsRevisionChanged() { root.rebuildRows() }
-    function onLoadingChanged() { if (!model.loading) root.rebuildRows() }
+    function onPluginsRevisionChanged() { root.rebuild() }
+    function onLoadingChanged() { if (!model.loading) root.rebuild() }
   }
 
   IpcHandler {
@@ -166,13 +154,10 @@ Panel {
     function refresh(): string { model.refresh(true); return "ok" }
     function debug(): string {
       return JSON.stringify({
-        v: "1.0.1",
-        draft: root.draftKeys.length,
-        applied: root.appliedKeys.length,
-        stale: root.staleKeys.length,
-        behind: root.behindKeys.length,
-        unrecorded: root.unrecordedKeys.length,
-        selected: root.selected ? root.selected.key : ""
+        v: "1.0.2",
+        page: root.page,
+        plugins: root.pluginIds.length,
+        plugin: root.selectedPlugin ? root.selectedPlugin.id : ""
       })
     }
   }
@@ -197,24 +182,17 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(400))
+    contentWidth: panel.fittedContentWidth(Style.space(420))
     contentHeight: panel.fittedContentHeight(Math.max(content.implicitHeight, Style.space(420)), Style.space(640))
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      blocked: customizeField.activeFocus
       onCloseRequested: {
-        if (root.selected) {
-          root.selectRow(null)
-          return
-        }
+        if (root.page === "item") { root.goPlugin(root.selectedPlugin.id); return }
+        if (root.page === "plugin") { root.goHome(); return }
         root.close()
-      }
-      onActivateRequested: {
-        if (root.selected && root.actionLabel(root.selected) !== "") {
-          model.launchItem(root.selected)
-          root.close()
-        }
       }
       onTextKey: function(text) {
         if (text === "r" || text === "R") model.refresh(true)
@@ -238,14 +216,20 @@ Panel {
 
           PanelHero {
             width: parent.width
-            title: root.selected ? root.selected.title : "Plugin customizations"
+            title: {
+              if (root.page === "item" && root.selectedItem) return root.selectedItem.title
+              if (root.page === "plugin" && root.selectedPlugin) return root.selectedPlugin.name
+              return "Plugin customizations"
+            }
             meta: {
               if (model.installing) return "Installing skill links…"
+              if (model.acting) return "Working on plugin…"
               if (model.loading) return "Scanning plugins…"
-              if (root.selected) return root.selected.name + " · " + root.selected.status
-              var n = root.staleKeys.length + root.draftKeys.length + root.unrecordedKeys.length + root.behindKeys.length + root.appliedKeys.length
-              if (n === 0) return model.message
-              return n + " item" + (n === 1 ? "" : "s") + " · click a row"
+              if (root.page === "item" && root.selectedItem)
+                return (root.selectedPlugin ? root.selectedPlugin.name + " · " : "") + root.selectedItem.status
+              if (root.page === "plugin" && root.selectedPlugin)
+                return root.pluginSummary(root.selectedPlugin)
+              return root.pluginIds.length + " plugin" + (root.pluginIds.length === 1 ? "" : "s")
             }
             foreground: root.foreground
             fontFamily: root.fontFamily
@@ -261,48 +245,270 @@ Panel {
             }
           }
 
-          Row {
-            visible: !root.selected
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: Style.space(12)
+          // ---- home ----
+          Column {
+            visible: root.page === "home"
+            width: parent.width
+            spacing: Style.space(8)
+
+            Row {
+              anchors.horizontalCenter: parent.horizontalCenter
+              spacing: Style.space(12)
+              Button {
+                text: "Refresh"
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: model.refresh(true)
+              }
+              Button {
+                text: root.uninstallArmed ? "Confirm uninstall?" : "Uninstall"
+                bordered: true
+                foreground: root.uninstallArmed ? root.urgent : root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: {
+                  if (!root.uninstallArmed) {
+                    root.uninstallArmed = true
+                    uninstallArmTimer.restart()
+                    return
+                  }
+                  root.uninstallArmed = false
+                  model.uninstall()
+                  root.close()
+                }
+              }
+            }
+
+            Repeater {
+              model: root.pluginIds.length
+              Button {
+                required property int index
+                width: content.width
+                leftAlign: true
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                text: {
+                  var p = root.findPlugin(root.pluginIds[index])
+                  if (!p) return root.pluginIds[index]
+                  return p.name + "  ·  " + root.pluginSummary(p)
+                }
+                onClicked: root.goPlugin(root.pluginIds[index])
+              }
+            }
+          }
+
+          // ---- plugin ----
+          Column {
+            visible: root.page === "plugin" && root.selectedPlugin
+            width: parent.width
+            spacing: Style.space(10)
+
+            Row {
+              spacing: Style.space(8)
+              Button {
+                text: "Back"
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: root.goHome()
+              }
+            }
+
+            Text {
+              width: parent.width
+              text: "CUSTOMIZATIONS"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+
+            Text {
+              visible: root.selectedPlugin && (!root.selectedPlugin.customizations || root.selectedPlugin.customizations.length === 0)
+              width: parent.width
+              text: "No recorded customizations."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            Repeater {
+              model: root.selectedPlugin && root.selectedPlugin.customizations ? root.selectedPlugin.customizations.length : 0
+              Button {
+                required property int index
+                width: content.width
+                leftAlign: true
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                text: {
+                  var recs = root.selectedPlugin ? (root.selectedPlugin.customizations || []) : []
+                  var rec = recs[index]
+                  if (!rec) return ""
+                  return rec.title + "  ·  " + rec.status
+                }
+                onClicked: {
+                  var recs = root.selectedPlugin ? (root.selectedPlugin.customizations || []) : []
+                  root.goItem(recs[index])
+                }
+              }
+            }
+
+            PanelSeparator { foreground: root.foreground }
+
+            Text {
+              width: parent.width
+              text: "CUSTOMIZE"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+            TextField {
+              id: customizeField
+              width: parent.width
+              foreground: root.foreground
+              placeholderText: "Describe a change…"
+              text: root.customizeText
+              onTextChanged: root.customizeText = text
+              onAccepted: {
+                if (root.customizeText.trim() === "")
+                  return
+                model.launchCustomize(root.selectedPlugin.id, root.customizeText)
+                root.customizeText = ""
+                customizeField.text = ""
+                root.close()
+              }
+              Keys.onEscapePressed: keyCatcher.forceActiveFocus()
+            }
             Button {
-              text: "Refresh"
+              text: "Send to agent"
+              enabled: root.customizeText.trim() !== "" && !model.acting
               bordered: true
               foreground: root.foreground
               fontFamily: root.fontFamily
               fontSize: Style.font.caption
               verticalPadding: Style.spacing.controlPaddingY
-              onClicked: model.refresh(true)
-            }
-            Button {
-              text: root.uninstallArmed ? "Confirm uninstall?" : "Uninstall"
-              bordered: true
-              foreground: root.uninstallArmed ? root.urgent : root.foreground
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              verticalPadding: Style.spacing.controlPaddingY
               onClicked: {
-                if (!root.uninstallArmed) {
-                  root.uninstallArmed = true
-                  uninstallArmTimer.restart()
-                  return
-                }
-                root.uninstallArmed = false
-                model.uninstall()
+                model.launchCustomize(root.selectedPlugin.id, root.customizeText)
+                root.customizeText = ""
+                customizeField.text = ""
                 root.close()
+              }
+            }
+
+            PanelSeparator { foreground: root.foreground }
+
+            Flow {
+              width: parent.width
+              spacing: Style.space(8)
+              Button {
+                text: root.resetArmed ? "Confirm reset?" : "Reset to upstream"
+                enabled: !model.acting
+                bordered: true
+                foreground: root.resetArmed ? root.urgent : root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: {
+                  if (!root.resetArmed) {
+                    root.resetArmed = true
+                    resetArmTimer.restart()
+                    return
+                  }
+                  root.resetArmed = false
+                  model.runAction("reset", root.selectedPlugin.id, false)
+                }
+              }
+              Button {
+                text: root.reapplyArmed ? "Confirm re-apply?" : "Re-apply"
+                enabled: !model.acting
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: {
+                  if (!root.reapplyArmed) {
+                    root.reapplyArmed = true
+                    reapplyArmTimer.restart()
+                    return
+                  }
+                  root.reapplyArmed = false
+                  model.runAction("reset", root.selectedPlugin.id, true)
+                }
+              }
+              Button {
+                visible: root.selectedPlugin && root.selectedPlugin.behind
+                text: root.updateOpen ? "Cancel update" : "Update"
+                enabled: !model.acting
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: root.updateOpen = !root.updateOpen
+              }
+            }
+
+            Column {
+              visible: root.updateOpen && root.selectedPlugin && root.selectedPlugin.behind
+              width: parent.width
+              spacing: Style.space(8)
+              Button {
+                width: parent.width
+                leftAlign: true
+                text: "Upstream only"
+                enabled: !model.acting
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: {
+                  root.updateOpen = false
+                  model.runAction("update", root.selectedPlugin.id, false)
+                }
+              }
+              Button {
+                width: parent.width
+                leftAlign: true
+                text: "Upstream then re-apply"
+                enabled: !model.acting
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: {
+                  root.updateOpen = false
+                  model.runAction("update", root.selectedPlugin.id, true)
+                }
               }
             }
           }
 
+          // ---- item ----
           Column {
-            visible: root.selected !== null
+            visible: root.page === "item" && root.selectedItem
             width: parent.width
             spacing: Style.space(12)
 
             Text {
-              visible: root.selected && root.selected.goal !== ""
+              visible: root.selectedItem && root.selectedItem.goal !== ""
               width: parent.width
-              text: root.selected ? root.selected.goal : ""
+              text: root.selectedItem ? root.selectedItem.goal : ""
               textFormat: Text.PlainText
               color: root.foreground
               font.family: root.fontFamily
@@ -310,9 +516,9 @@ Panel {
               wrapMode: Text.WordWrap
             }
             Text {
-              visible: root.selected && root.selected.why !== ""
+              visible: root.selectedItem && root.selectedItem.why !== ""
               width: parent.width
-              text: root.selected ? root.selected.why : ""
+              text: root.selectedItem ? root.selectedItem.why : ""
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
@@ -320,19 +526,9 @@ Panel {
               wrapMode: Text.WordWrap
             }
             Text {
-              visible: root.selected && root.selected.files && root.selected.files.length > 0
+              visible: root.selectedItem && root.selectedItem.files && root.selectedItem.files.length > 0
               width: parent.width
-              text: root.selected ? "Files  " + root.selected.files.join(", ") : ""
-              textFormat: Text.PlainText
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
-            }
-            Text {
-              visible: root.selected && root.selected.detail !== ""
-              width: parent.width
-              text: root.selected ? root.selected.detail : ""
+              text: root.selectedItem ? "Files  " + root.selectedItem.files.join(", ") : ""
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
@@ -341,8 +537,7 @@ Panel {
             }
 
             Row {
-              anchors.horizontalCenter: parent.horizontalCenter
-              spacing: Style.space(12)
+              spacing: Style.space(8)
               Button {
                 text: "Back"
                 bordered: true
@@ -350,10 +545,10 @@ Panel {
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
                 verticalPadding: Style.spacing.controlPaddingY
-                onClicked: root.selectRow(null)
+                onClicked: root.goPlugin(root.selectedPlugin.id)
               }
               Button {
-                visible: root.selected && root.selected.path !== ""
+                visible: root.selectedItem && root.selectedItem.path !== ""
                 text: "Open record"
                 bordered: true
                 foreground: root.foreground
@@ -361,111 +556,35 @@ Panel {
                 fontSize: Style.font.caption
                 verticalPadding: Style.spacing.controlPaddingY
                 onClicked: {
-                  model.openRecord(root.selected.path)
+                  model.openRecord(root.selectedItem.path)
                   root.close()
                 }
               }
               Button {
-                visible: root.actionLabel(root.selected) !== ""
-                text: root.actionLabel(root.selected)
+                visible: root.itemActionLabel(root.selectedItem) !== ""
+                text: root.itemActionLabel(root.selectedItem)
                 bordered: true
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
                 verticalPadding: Style.spacing.controlPaddingY
                 onClicked: {
-                  model.launchItem(root.selected)
+                  model.launchItem({
+                    pluginId: root.selectedPlugin.id,
+                    customizationId: root.selectedItem.id,
+                    status: root.selectedItem.status
+                  })
                   root.close()
                 }
               }
             }
           }
-
-          StatusSection {
-            title: "NEEDS RE-APPLY"
-            keys: root.staleKeys
-          }
-          StatusSection {
-            title: "DRAFTS FROM INSTALL"
-            keys: root.draftKeys
-          }
-          StatusSection {
-            title: "UNRECORDED EDITS"
-            keys: root.unrecordedKeys
-          }
-          StatusSection {
-            title: "UPDATES AVAILABLE"
-            keys: root.behindKeys
-          }
-          StatusSection {
-            title: "APPLIED"
-            emptyText: "No recorded customizations yet."
-            keys: root.appliedKeys
-            showWhenEmpty: root.staleKeys.length === 0 &&
-              root.draftKeys.length === 0 &&
-              root.unrecordedKeys.length === 0
-          }
         }
       }
     }
   }
 
-  Timer {
-    id: uninstallArmTimer
-    interval: 4000
-    repeat: false
-    onTriggered: root.uninstallArmed = false
-  }
-
-  component StatusSection: Column {
-    id: section
-    property string title: ""
-    property var keys: []
-    property string emptyText: ""
-    property bool showWhenEmpty: false
-    visible: !root.selected && (keys.length > 0 || (showWhenEmpty && emptyText !== ""))
-    width: parent ? parent.width : 0
-    spacing: Style.space(8)
-
-    PanelSeparator { foreground: root.foreground }
-    PanelSectionHeader {
-      width: parent.width
-      text: section.title + (section.keys.length > 0 ? "  " + section.keys.length : "")
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
-    Text {
-      visible: section.keys.length === 0
-      width: parent.width
-      text: section.emptyText
-      color: root.dim
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.bodySmall
-      horizontalAlignment: Text.AlignHCenter
-    }
-    Repeater {
-      model: section.keys.length
-      Button {
-        required property int index
-        width: section.width
-        leftAlign: true
-        bordered: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        fontSize: Style.font.caption
-        verticalPadding: Style.spacing.controlPaddingY
-        text: {
-          var key = section.keys[index]
-          var item = key ? root.itemMap[key] : null
-          if (!item)
-            return key || ""
-          return item.name + "  ·  " + item.title
-        }
-        onClicked: {
-          var key = section.keys[index]
-          root.selectRow(key ? root.itemMap[key] : null)
-        }
-      }
-    }
-  }
+  Timer { id: uninstallArmTimer; interval: 4000; repeat: false; onTriggered: root.uninstallArmed = false }
+  Timer { id: resetArmTimer; interval: 4000; repeat: false; onTriggered: root.resetArmed = false }
+  Timer { id: reapplyArmTimer; interval: 4000; repeat: false; onTriggered: root.reapplyArmed = false }
 }

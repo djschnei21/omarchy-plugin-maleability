@@ -6,7 +6,7 @@ description: >
   plugin, when a plugin was updated and tweaks disappeared, when the plugin
   customizations bar icon is lit, or when they say re-apply plugin
   customizations. Triggers: customize this plugin, plugin updated, re-apply
-  customizations, unread-only icon, plugin drift.
+  customizations, unread-only icon, plugin drift, reset to upstream.
 ---
 
 # Plugin customizations
@@ -17,53 +17,56 @@ third-party plugin repo. Never edit `/usr/share/omarchy/`.
 
 Skip this plugin itself (`djschnei21.plugin-customizations`).
 
-Scanner (run this first on every invocation):
+Scanner:
 
 ```bash
 python3 ~/.config/omarchy/plugins/djschnei21.plugin-customizations/status
 ```
 
-`--bootstrap` writes draft records for unrecorded diffs. `--fetch` updates remotes.
+`--bootstrap` writes draft records. `--fetch` updates remotes.
+`--reset PLUGIN_ID` restores that checkout and sets every record `enabled: false`.
+`--update PLUGIN_ID` fetches origin, hard-resets to it, then `enabled: false`.
+Do **not** run git reset yourself when the prompt says the plugin is already reset.
 
-Record format: `references/record-format.md`.
-
-## Record (after a customization)
-
-1. Identify the plugin id from the path.
-2. `git diff HEAD` in that checkout (or clone-vs-source for `omarchy.clonedFrom`).
-3. Write or update the markdown record: Goal, Why, Where to look, Prior art
-   (current hunks as an *example*), Re-apply notes. Set `applied.commit` to
-   current `HEAD`. Set `bootstrapped: false` once Goal/Why are real.
-4. Do not commit the plugin repo.
-5. Re-run `status` and confirm the record is `applied`.
-
-If `status` reports `draft` records, upgrade them before anything else: fill
-Goal/Why/Where-to-look from the captured prior art and the working tree.
+Record format: `references/record-format.md`. Frontmatter `enabled: true|false`
+(missing means true). After a successful apply set `enabled: true` and
+`applied.commit` to current HEAD.
 
 ## Scope
 
-The panel launches one customization at a time. If the prompt names a plugin
-id and a customization id, work **only that record**. Do not walk every
-stale/draft plugin unless the user explicitly asked to re-apply all.
+The panel names a plugin id and sometimes a customization id. Work only that
+scope. Do not walk every plugin unless asked to re-apply all.
 
-## Re-apply (one customization, or all if asked)
+## Customize (user described a change)
 
-1. Run `status`. Locate the named plugin/id (or every `stale` / `unrecorded` /
-   `draft` item if they asked for all).
-2. `unrecorded` diffs: **Record** them first. Never reset a dirty tree with no
-   covering record.
-3. If that plugin is `behind` (origin has new commits): `git fetch`, then
-   `git reset --hard FETCH_HEAD` on the *target* plugin only after records
-   cover its dirty paths.
-4. Read the new tree and re-implement that record's **Goal**. Use prior art as
-   a map, not as a patch. If the old symbol is gone, find the new one that
-   drives the same UX.
-5. Run that plugin's tests if present.
-6. Update `applied.commit`, `files`, and prior-art excerpts on that record
-   only.
-7. If upstream removed the feature, keep the record and say so. Do not delete it.
+1. Implement the request in `~/.config/omarchy/plugins/<id>/`.
+2. Write a new record with Goal, Why, Where to look, Prior art, `enabled: true`,
+   `bootstrapped: false`, `applied.commit` = HEAD.
+3. Do not commit the plugin repo.
 
-## Customize (user wants a new tweak)
+## Record (after a manual tweak)
 
-Follow the Omarchy skill for safe edit locations. After the code change, always
-**Record**.
+Same as Customize, from `git diff HEAD` (or clone-vs-source).
+
+If `status` reports `draft`, fill Goal/Why/Where-to-look and set
+`bootstrapped: false`.
+
+## Re-apply one customization
+
+1. Run `status`. Find that plugin/id.
+2. Do not reset the whole plugin (other customizations may be applied).
+3. Re-implement that record's **Goal** on the current tree. Prior art is a map,
+   not a patch.
+4. Run the plugin's tests if present.
+5. Set `enabled: true`, update `applied.commit` / files / prior art.
+6. If upstream removed the feature, leave the record, set `enabled: false`, say so.
+
+## Re-apply a plugin (after helper reset)
+
+The checkout is already stock. For each record on that plugin except drafts
+with a placeholder Goal, re-apply one by one as above.
+
+## Reset / update
+
+The widget helper does this. Do not delete records. `enabled: false` means
+unapplied, not gone.

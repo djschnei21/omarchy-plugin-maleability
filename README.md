@@ -21,8 +21,14 @@ On first load the widget:
 - scans installed plugins for existing local diffs and writes draft records
 - sits in the right section of the bar (move it with `omarchy bar move`)
 
-Click a row to read its goal and files. **Re-apply**, **Refine**, or **Record**
-on that page launches your default agent for that customization only.
+The home list is every local plugin. Open one to see its records.
+
+- **Reset to upstream** restores stock code and marks records unapplied (they stay).
+- **Re-apply** resets, then asks your default agent to put each record back.
+- **Customize** is a text box: describe a change and an agent implements and records it.
+- **Update** (when origin is ahead) is upstream-only or upstream-then-re-apply.
+
+Per-record **Re-apply** / **Refine** still run on that item only.
 
 ## Remove
 

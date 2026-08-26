@@ -13,6 +13,7 @@ id: bar-icon-unread-only
 plugin: robzolkos.github
 title: Bar icon only for unread notifications
 bootstrapped: false
+enabled: true
 applied:
   commit: c6e6633
   at: 2026-08-26T14:00:00Z
@@ -22,16 +23,11 @@ files:
 ---
 ```
 
+`enabled: false` keeps the record after **Reset to upstream** or **Update
+(upstream only)**. Missing `enabled` is treated as true.
+
 `bootstrapped: true` plus a Goal that still says "Draft — refine" is status
-`draft`. Upgrade those before the next update.
+`draft`.
 
-Required sections:
-
-- **Goal** — what the user should observe
-- **Why / decisions** — rejected alternatives
-- **Where to look** — symbols and call chain
-- **Prior art** — before/after from the revision it was last applied to
-- **Re-apply notes** — how to tell it already holds; tests to run
-
-Worked example: the GitHub unread-only icon, once upgraded from the install
-bootstrap, in `~/.config/omarchy/plugin-customizations/robzolkos.github/`.
+Required sections: **Goal**, **Why / decisions**, **Where to look**, **Prior art**,
+**Re-apply notes**.

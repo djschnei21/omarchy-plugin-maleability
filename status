@@ -2,9 +2,11 @@
 """Scan Omarchy plugin checkouts and recorded customizations.
 
 Prints one JSON object. Optional flags:
-  --bootstrap  write draft records for unrecorded local diffs
-  --fetch      git fetch origin on git-managed plugins
-  --notify     desktop-notify on a false→true attention transition
+  --bootstrap           write draft records for unrecorded local diffs
+  --fetch               git fetch origin on git-managed plugins
+  --notify              desktop-notify on a false→true attention transition
+  --reset PLUGIN_ID     restore checkout to HEAD/clone source; mark records unapplied
+  --update PLUGIN_ID    fetch and reset to origin; mark records unapplied
 """
 from __future__ import annotations
 
@@ -189,11 +191,16 @@ def load_records():
             cid = str(fm.get("id") or path.stem)
             applied = fm.get("applied") if isinstance(fm.get("applied"), dict) else {}
             files = fm.get("files") if isinstance(fm.get("files"), list) else []
+            if "enabled" in fm:
+                enabled = bool(fm.get("enabled"))
+            else:
+                enabled = True
             rec = {
                 "id": cid,
                 "plugin": pid,
                 "title": str(fm.get("title") or cid),
                 "bootstrapped": bool(fm.get("bootstrapped")),
+                "enabled": enabled,
                 "appliedCommit": str(applied.get("commit") or ""),
                 "appliedAt": str(applied.get("at") or ""),
                 "files": [str(f) for f in files],
@@ -345,6 +352,7 @@ id: {path.stem}
 plugin: {plugin_id}
 title: {title}
 bootstrapped: true
+enabled: true
 applied:
   commit: {commit}
   at: {now_iso()}
@@ -397,12 +405,101 @@ def sha_match(head: str, applied: str) -> bool:
 def customization_status(rec, head: str, dirty: list[str]) -> str:
     if rec["bootstrapped"] and rec["draftGoal"]:
         return "draft"
-    extra = set(dirty) - set(rec["files"])
-    if extra:
-        return "unrecorded"
+    if not rec.get("enabled", True):
+        return "unapplied"
     if rec["appliedCommit"] and head and not sha_match(head, rec["appliedCommit"]):
         return "stale"
+    extra = set(dirty) - set(rec["files"])
+    if extra and rec.get("enabled", True):
+        # Extra dirty files are plugin-level unrecorded, not this record's status.
+        pass
     return "applied"
+
+
+def set_record_enabled(path: Path, enabled: bool) -> None:
+    text = path.read_text(errors="replace")
+    fm, body = parse_frontmatter(text)
+    if not fm and not text.startswith("---"):
+        return
+    rest = text[3:].lstrip("\n")
+    end = rest.find("\n---")
+    if end < 0:
+        return
+    block = rest[:end]
+    value = "true" if enabled else "false"
+    if re.search(r"^enabled:\s*", block, re.M):
+        block = re.sub(r"^enabled:\s*.*$", f"enabled: {value}", block, count=1, flags=re.M)
+    else:
+        block = f"enabled: {value}\n" + block
+    path.write_text("---\n" + block.strip() + "\n---" + body)
+
+
+def mark_plugin_records(plugin_id: str, enabled: bool) -> int:
+    n = 0
+    for rec in load_records().get(plugin_id, []):
+        set_record_enabled(Path(rec["path"]), enabled)
+        n += 1
+    return n
+
+
+def find_plugin_dir(plugin_id: str) -> Path | None:
+    direct = PLUGINS_DIR / plugin_id
+    if direct.is_dir():
+        return direct
+    if not PLUGINS_DIR.is_dir():
+        return None
+    for path in PLUGINS_DIR.iterdir():
+        if not path.is_dir() or path.name.startswith("."):
+            continue
+        if plugin_manifest(path)["id"] == plugin_id:
+            return path
+    return None
+
+
+def reset_checkout(path: Path, catalog) -> str:
+    if (path / ".git").exists():
+        code, _, err = git(path, "reset", "--hard", "HEAD")
+        if code != 0:
+            return err or "git reset failed"
+        git(path, "clean", "-fd", "-e", ".git")
+        return ""
+    meta = plugin_manifest(path)
+    source = catalog.get(meta.get("clonedFrom") or "")
+    if not source or not source.is_dir():
+        return "not a git checkout and no clone source"
+    wanted = set()
+    for src in source.rglob("*"):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(source)
+        if rel.as_posix() == "manifest.json":
+            continue
+        wanted.add(rel.as_posix())
+        dest = path / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(src.read_bytes())
+    for dest in path.rglob("*"):
+        if not dest.is_file():
+            continue
+        rel = dest.relative_to(path).as_posix()
+        if rel in ("manifest.json",) or rel.startswith(".git/"):
+            continue
+        if rel not in wanted:
+            dest.unlink()
+    return ""
+
+
+def update_checkout(path: Path) -> str:
+    if not (path / ".git").exists():
+        return "not a git checkout"
+    code, _, err = git(path, "fetch", "--quiet", "origin", timeout=60)
+    if code != 0:
+        return err or "git fetch failed"
+    code, _, err = git(path, "reset", "--hard", "FETCH_HEAD")
+    if code != 0:
+        return err or "git reset failed"
+    git(path, "clean", "-fd", "-e", ".git")
+    return ""
 
 
 def short(sha: str) -> str:
@@ -471,6 +568,7 @@ def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
                 "id": rec["id"],
                 "title": rec["title"],
                 "status": status,
+                "enabled": rec.get("enabled", True),
                 "path": rec["path"],
                 "appliedCommit": rec["appliedCommit"],
                 "bootstrapped": rec["bootstrapped"],
@@ -529,6 +627,7 @@ def assemble(plugins: list[dict]) -> dict:
         "unrecorded": 0,
         "updateAvailable": 0,
         "applied": 0,
+        "unapplied": 0,
     }
     out_plugins = []
     for plugin in plugins:
@@ -599,9 +698,28 @@ def main():
     parser.add_argument("--bootstrap", action="store_true")
     parser.add_argument("--fetch", action="store_true")
     parser.add_argument("--notify", action="store_true")
+    parser.add_argument("--reset", metavar="PLUGIN_ID")
+    parser.add_argument("--update", metavar="PLUGIN_ID")
     args = parser.parse_args()
 
     catalog = catalog_source_dirs()
+
+    if args.reset or args.update:
+        plugin_id = args.reset or args.update
+        path = find_plugin_dir(plugin_id)
+        if not path:
+            json.dump({"ok": False, "error": f"plugin not found: {plugin_id}"}, sys.stdout)
+            sys.stdout.write("\n")
+            return 1
+        if args.update:
+            err = update_checkout(path)
+        else:
+            err = reset_checkout(path, catalog)
+        if err:
+            json.dump({"ok": False, "error": err, "plugin": plugin_id}, sys.stdout)
+            sys.stdout.write("\n")
+            return 1
+        mark_plugin_records(plugin_id, False)
     records = load_records()
     plugins = []
     if PLUGINS_DIR.is_dir():
