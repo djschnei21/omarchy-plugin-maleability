@@ -40,20 +40,27 @@ Record format: `references/record-format.md`.
 If `status` reports `draft` records, upgrade them before anything else: fill
 Goal/Why/Where-to-look from the captured prior art and the working tree.
 
-## Re-apply (plugin updated, icon lit, or user asked)
+## Scope
 
-1. Run `status`. Handle every `stale`, `unrecorded`, and `draft` plugin, not
-   only the one named.
+The panel launches one customization at a time. If the prompt names a plugin
+id and a customization id, work **only that record**. Do not walk every
+stale/draft plugin unless the user explicitly asked to re-apply all.
+
+## Re-apply (one customization, or all if asked)
+
+1. Run `status`. Locate the named plugin/id (or every `stale` / `unrecorded` /
+   `draft` item if they asked for all).
 2. `unrecorded` diffs: **Record** them first. Never reset a dirty tree with no
    covering record.
-3. If `behind` (origin has new commits): `git fetch`, then
+3. If that plugin is `behind` (origin has new commits): `git fetch`, then
    `git reset --hard FETCH_HEAD` on the *target* plugin only after records
    cover its dirty paths.
-4. For each record, read the new tree and re-implement the **Goal**. Use prior
-   art as a map, not as a patch. If the old symbol is gone, find the new one
-   that drives the same UX.
+4. Read the new tree and re-implement that record's **Goal**. Use prior art as
+   a map, not as a patch. If the old symbol is gone, find the new one that
+   drives the same UX.
 5. Run that plugin's tests if present.
-6. Update `applied.commit`, `files`, and prior-art excerpts.
+6. Update `applied.commit`, `files`, and prior-art excerpts on that record
+   only.
 7. If upstream removed the feature, keep the record and say so. Do not delete it.
 
 ## Customize (user wants a new tweak)

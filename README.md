@@ -21,8 +21,8 @@ On first load the widget:
 - scans installed plugins for existing local diffs and writes draft records
 - sits in the right section of the bar (move it with `omarchy bar move`)
 
-Drafts need a pass from your default agent (`omarchy agent prompt` with the
-plugin-customizations skill) so Goal and Why are real before the next update.
+Click a row to read its goal and files. **Re-apply**, **Refine**, or **Record**
+on that page launches your default agent for that customization only.
 
 ## Remove
 

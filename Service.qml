@@ -19,7 +19,16 @@ Item {
   property bool installedOnce: false
 
   readonly property int refreshIntervalSec: intSetting("refreshIntervalSec", 120, 30, 3600)
-  readonly property string reapplyPrompt: "Re-apply recorded Omarchy plugin customizations. Use the plugin-customizations skill."
+  function itemPrompt(item) {
+    var plugin = String((item && item.pluginId) || "")
+    var id = String((item && item.customizationId) || "")
+    var status = String((item && item.status) || "")
+    if (status === "draft")
+      return "Refine the draft Omarchy plugin customization '" + id + "' on plugin '" + plugin + "'. Use the plugin-customizations skill. Only this customization."
+    if (status === "unrecorded")
+      return "Record the unrecorded local edits on Omarchy plugin '" + plugin + "'. Use the plugin-customizations skill. Do not re-apply other customizations."
+    return "Re-apply the Omarchy plugin customization '" + id + "' on plugin '" + plugin + "'. Use the plugin-customizations skill. Only this customization — do not re-apply others."
+  }
 
   function intSetting(name, fallback, minimum, maximum) {
     var value = parseInt(String(settings && settings[name] !== undefined ? settings[name] : fallback), 10)
@@ -69,8 +78,17 @@ Item {
     }
   }
 
-  function launchReapply() {
-    Quickshell.execDetached(["omarchy-agent-prompt", reapplyPrompt])
+  function launchItem(item) {
+    if (!item)
+      return
+    Quickshell.execDetached(["omarchy-agent-prompt", itemPrompt(item)])
+  }
+
+  function openRecord(path) {
+    var value = String(path || "")
+    if (value === "")
+      return
+    Quickshell.execDetached(["omarchy-launch-editor", value])
   }
 
   function uninstall() {

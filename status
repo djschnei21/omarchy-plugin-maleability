@@ -158,6 +158,23 @@ def goal_is_draft(body: str) -> bool:
     return "draft — refine" in text or "draft - refine" in text
 
 
+def extract_section(body: str, heading: str) -> str:
+    match = re.search(r"^##\s+" + re.escape(heading) + r"\s*$", body, re.I | re.M)
+    if not match:
+        return ""
+    rest = body[match.end() :]
+    nxt = re.search(r"^##\s+", rest, re.M)
+    text = rest[: nxt.start()] if nxt else rest
+    return text.strip()
+
+
+def clip(text: str, limit: int = 700) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
 def load_records():
     records = {}
     if not RECORDS_DIR.is_dir():
@@ -182,6 +199,8 @@ def load_records():
                 "files": [str(f) for f in files],
                 "path": str(path),
                 "draftGoal": goal_is_draft(body),
+                "goal": clip(extract_section(body, "Goal")),
+                "why": clip(extract_section(body, "Why / decisions"), 400),
             }
             records.setdefault(pid, []).append(rec)
     return records
@@ -455,6 +474,9 @@ def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
                 "path": rec["path"],
                 "appliedCommit": rec["appliedCommit"],
                 "bootstrapped": rec["bootstrapped"],
+                "files": rec["files"],
+                "goal": rec["goal"],
+                "why": rec["why"],
             }
         )
     unrecorded = [f for f in dirty if f not in recorded_files]
@@ -563,12 +585,11 @@ def notify_if_needed(payload: dict):
             "--app-name",
             "Plugin customizations",
             "Plugin customizations need attention",
-            detail,
+            detail + ". Open the panel to view or apply each one.",
             "--exec",
-            "omarchy",
-            "agent",
-            "prompt",
-            REAPPLY_PROMPT,
+            "omarchy-shell",
+            "djschnei21.plugin-customizations",
+            "show",
         ]
     )
 

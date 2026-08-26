@@ -17,9 +17,31 @@ Panel {
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   property bool uninstallArmed: false
+  property string selectedKey: ""
+  readonly property var selected: findRow(selectedKey)
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
+
+  function rowFromCustomization(plugin, item) {
+    return {
+      key: plugin.id + ":" + item.id,
+      kind: "customization",
+      status: item.status,
+      pluginId: plugin.id,
+      name: plugin.name,
+      customizationId: item.id,
+      title: item.title,
+      path: item.path || "",
+      goal: item.goal || "",
+      why: item.why || "",
+      files: item.files || [],
+      appliedCommit: item.appliedCommit || "",
+      head: plugin.head || "",
+      detail: "applied " + String(item.appliedCommit || "").slice(0, 7) +
+        (plugin.head ? " · HEAD " + String(plugin.head).slice(0, 7) : "")
+    }
+  }
 
   function rowsFor(kind) {
     var rows = []
@@ -28,16 +50,8 @@ Panel {
       var plugin = plugins[i]
       var list = plugin.customizations || []
       for (var j = 0; j < list.length; j++) {
-        if (list[j].status !== kind)
-          continue
-        rows.push({
-          key: plugin.id + ":" + list[j].id,
-          pluginId: plugin.id,
-          name: plugin.name,
-          title: list[j].title,
-          detail: "applied " + String(list[j].appliedCommit || "").slice(0, 7) +
-            (plugin.head ? " · HEAD " + String(plugin.head).slice(0, 7) : "")
-        })
+        if (list[j].status === kind)
+          rows.push(root.rowFromCustomization(plugin, list[j]))
       }
       if (kind === "unrecorded" && (plugin.unrecordedFiles || []).length > 0) {
         var already = false
@@ -46,27 +60,77 @@ Panel {
         if (!already)
           rows.push({
             key: plugin.id + ":unrecorded",
+            kind: "unrecorded",
+            status: "unrecorded",
             pluginId: plugin.id,
             name: plugin.name,
+            customizationId: "",
             title: plugin.unrecordedFiles.length + " unrecorded file" + (plugin.unrecordedFiles.length === 1 ? "" : "s"),
+            path: "",
+            goal: "These local edits are not in a customization record yet.",
+            why: "",
+            files: plugin.unrecordedFiles,
+            appliedCommit: "",
+            head: plugin.head || "",
             detail: plugin.unrecordedFiles.slice(0, 3).join(", ")
           })
       }
       if (kind === "behind" && plugin.behind)
         rows.push({
           key: plugin.id + ":behind",
+          kind: "behind",
+          status: "behind",
           pluginId: plugin.id,
           name: plugin.name,
+          customizationId: "",
           title: "Upstream has new commits",
+          path: "",
+          goal: "This plugin can be updated. Customizations are listed separately — apply each one after the update.",
+          why: "",
+          files: [],
+          appliedCommit: "",
+          head: plugin.head || "",
           detail: "HEAD " + String(plugin.head || "").slice(0, 7) + " · origin " + String(plugin.origin || "").slice(0, 7)
         })
     }
     return rows
   }
 
+  function findRow(key) {
+    if (!key)
+      return null
+    var kinds = ["stale", "draft", "unrecorded", "behind", "applied"]
+    for (var i = 0; i < kinds.length; i++) {
+      var rows = root.rowsFor(kinds[i])
+      for (var j = 0; j < rows.length; j++)
+        if (rows[j].key === key)
+          return rows[j]
+    }
+    return null
+  }
+
+  function actionLabel(item) {
+    if (!item)
+      return ""
+    if (item.status === "draft")
+      return "Refine"
+    if (item.status === "unrecorded")
+      return "Record"
+    if (item.status === "behind")
+      return ""
+    return "Re-apply"
+  }
+
+  function selectRow(item) {
+    selectedKey = item && item.key ? item.key : ""
+    if (panelFlick)
+      panelFlick.contentY = 0
+  }
+
   onOpenedChanged: if (opened) {
     uninstallArmed = false
     uninstallArmTimer.stop()
+    selectedKey = ""
     if (panelFlick) panelFlick.contentY = 0
     model.refresh(true)
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -110,8 +174,19 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      onCloseRequested: root.close()
-      onActivateRequested: model.launchReapply()
+      onCloseRequested: {
+        if (root.selectedKey !== "") {
+          root.selectRow(null)
+          return
+        }
+        root.close()
+      }
+      onActivateRequested: {
+        if (root.selected && root.actionLabel(root.selected) !== "") {
+          model.launchItem(root.selected)
+          root.close()
+        }
+      }
       onTextKey: function(text) {
         if (text === "r" || text === "R") model.refresh(true)
       }
@@ -134,8 +209,13 @@ Panel {
 
           PanelHero {
             width: parent.width
-            title: "Plugin customizations"
-            meta: model.installing ? "Installing skill links…" : (model.loading ? "Scanning plugins…" : model.message)
+            title: root.selected ? root.selected.title : "Plugin customizations"
+            meta: {
+              if (model.installing) return "Installing skill links…"
+              if (model.loading) return "Scanning plugins…"
+              if (root.selected) return root.selected.name + " · " + root.selected.status
+              return model.message
+            }
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconComponent: Component {
@@ -151,20 +231,9 @@ Panel {
           }
 
           Row {
+            visible: root.selectedKey === ""
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(12)
-            Button {
-              text: "Re-apply"
-              bordered: true
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              verticalPadding: Style.spacing.controlPaddingY
-              onClicked: {
-                model.launchReapply()
-                root.close()
-              }
-            }
             Button {
               text: "Refresh"
               bordered: true
@@ -194,27 +263,115 @@ Panel {
             }
           }
 
+          Column {
+            visible: root.selected !== null
+            width: parent.width
+            spacing: Style.space(12)
+
+            Text {
+              visible: root.selected && root.selected.goal !== ""
+              width: parent.width
+              text: root.selected ? root.selected.goal : ""
+              textFormat: Text.PlainText
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              wrapMode: Text.WordWrap
+            }
+            Text {
+              visible: root.selected && root.selected.why !== ""
+              width: parent.width
+              text: root.selected ? root.selected.why : ""
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+            Text {
+              visible: root.selected && root.selected.files && root.selected.files.length > 0
+              width: parent.width
+              text: root.selected ? "Files  " + root.selected.files.join(", ") : ""
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+            Text {
+              visible: root.selected && root.selected.detail !== ""
+              width: parent.width
+              text: root.selected ? root.selected.detail : ""
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            Row {
+              anchors.horizontalCenter: parent.horizontalCenter
+              spacing: Style.space(12)
+              Button {
+                text: "Back"
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: root.selectRow(null)
+              }
+              Button {
+                visible: root.selected && root.selected.path !== ""
+                text: "Open record"
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: {
+                  model.openRecord(root.selected.path)
+                  root.close()
+                }
+              }
+              Button {
+                visible: root.actionLabel(root.selected) !== ""
+                text: root.actionLabel(root.selected)
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: {
+                  model.launchItem(root.selected)
+                  root.close()
+                }
+              }
+            }
+          }
+
           StatusSection {
+            visible: root.selectedKey === ""
             title: "NEEDS RE-APPLY"
-            emptyText: ""
             model: root.rowsFor("stale")
           }
           StatusSection {
+            visible: root.selectedKey === ""
             title: "DRAFTS FROM INSTALL"
-            emptyText: ""
             model: root.rowsFor("draft")
           }
           StatusSection {
+            visible: root.selectedKey === ""
             title: "UNRECORDED EDITS"
-            emptyText: ""
             model: root.rowsFor("unrecorded")
           }
           StatusSection {
+            visible: root.selectedKey === ""
             title: "UPDATES AVAILABLE"
-            emptyText: ""
             model: root.rowsFor("behind")
           }
           StatusSection {
+            visible: root.selectedKey === ""
             title: "APPLIED"
             emptyText: "No recorded customizations yet."
             model: root.rowsFor("applied")
@@ -240,7 +397,7 @@ Panel {
     property var model: []
     property string emptyText: ""
     property bool showWhenEmpty: false
-    visible: model.length > 0 || (showWhenEmpty && emptyText !== "")
+    visible: (model.length > 0 || (showWhenEmpty && emptyText !== "")) && root.selectedKey === ""
     width: parent ? parent.width : 0
     spacing: Style.space(8)
 
@@ -262,27 +419,55 @@ Panel {
     }
     Repeater {
       model: section.model
-      Column {
+      CursorSurface {
+        id: row
         required property var modelData
         width: parent.width
-        spacing: Style.space(1)
-        Text {
-          width: parent.width
-          text: modelData.name || modelData.pluginId
-          textFormat: Text.PlainText
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          elide: Text.ElideRight
+        foreground: root.foreground
+        implicitHeight: rowLabels.implicitHeight + Style.space(16)
+        hasCursor: false
+
+        MouseArea {
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.selectRow(row.modelData)
+        }
+        Column {
+          id: rowLabels
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.leftMargin: Style.space(9)
+          anchors.rightMargin: Style.space(28)
+          spacing: Style.space(1)
+          Text {
+            width: parent.width
+            text: row.modelData.name || row.modelData.pluginId
+            textFormat: Text.PlainText
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            elide: Text.ElideRight
+          }
+          Text {
+            width: parent.width
+            text: row.modelData.title + (row.modelData.detail ? " · " + row.modelData.detail : "")
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
         }
         Text {
-          width: parent.width
-          text: modelData.title + (modelData.detail ? " · " + modelData.detail : "")
-          textFormat: Text.PlainText
+          anchors.right: parent.right
+          anchors.rightMargin: Style.space(9)
+          anchors.verticalCenter: parent.verticalCenter
+          text: "󰅂"
           color: root.dim
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
+          font.pixelSize: Style.font.body
         }
       }
     }
