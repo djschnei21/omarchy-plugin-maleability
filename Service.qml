@@ -26,7 +26,7 @@ Item {
   property var pendingReapplyIds: []
   property string defaultAgent: ""
   property bool agentProbed: false
-  readonly property string pluginVersion: "1.1.0"
+  readonly property string pluginVersion: "1.2.0"
 
   readonly property int refreshIntervalSec: intSetting("refreshIntervalSec", 120, 30, 3600)
 
@@ -40,10 +40,10 @@ Item {
     var status = String((item && item.status) || "")
     var home = pluginHome(plugin)
     if (status === "draft")
-      return "Refine the draft Omarchy plugin customization '" + id + "' on plugin '" + plugin + "' at " + home + ". Use the plugin-maleability skill. Fill Goal, Why, Where to look, and Prior art from the current implementation (see references/record-format.md). Only this customization. Do not git reset. Do not commit."
+      return "Refine the draft Omarchy plugin customization '" + id + "' on plugin '" + plugin + "' at " + home + ". Use the plugin-malleability skill. Fill Goal, Why, Where to look, and Prior art from the current implementation (see references/record-format.md). Only this customization. Do not git reset. Do not commit."
     if (status === "unrecorded" || status === "drift")
-      return "Record the " + (status === "drift" ? "local drift on" : "unrecorded local edits on") + " Omarchy plugin '" + plugin + "' at " + home + ". Use the plugin-maleability skill. Write Prior art from the implementation you record (references/record-format.md). Verify live before enabled: true. Do not git reset. Do not commit. Do not re-apply other customizations."
-    return "Re-apply the Omarchy plugin customization '" + id + "' on plugin '" + plugin + "' at " + home + ". Use the plugin-maleability skill. Read that record first. Re-implement the Goal using Prior art as a map, not a patch. After it holds, rewrite that record's Prior art from the implementation you just did, tagged with the plugin's current manifest version (applied.version). Only this customization — do not re-apply others. Do not git reset (other customizations may be applied). Do not commit. Verify live before enabled: true."
+      return "Record the " + (status === "drift" ? "local drift on" : "unrecorded local edits on") + " Omarchy plugin '" + plugin + "' at " + home + ". Use the plugin-malleability skill. Write Prior art from the implementation you record (references/record-format.md). Verify live before enabled: true. Do not git reset. Do not commit. Do not re-apply other customizations."
+    return "Re-apply the Omarchy plugin customization '" + id + "' on plugin '" + plugin + "' at " + home + ". Use the plugin-malleability skill. Read that record first. Re-implement the Goal using Prior art as a map, not a patch. After it holds, rewrite that record's Prior art from the implementation you just did, tagged with the plugin's current manifest version (applied.version). Only this customization — do not re-apply others. Do not git reset (other customizations may be applied). Do not commit. Verify live before enabled: true."
   }
 
   function intSetting(name, fallback, minimum, maximum) {
@@ -128,7 +128,7 @@ Item {
     if (id === "" || request === "")
       return
     var home = pluginHome(id)
-    launchPrompt("On Omarchy plugin '" + id + "' at " + home + ", implement this customization and record it with the plugin-maleability skill. Prior art in the record must be the implementation you just did (references/record-format.md), not a sketch. Verify live before enabled: true. Do not git reset. Do not commit. Request: " + request)
+    launchPrompt("On Omarchy plugin '" + id + "' at " + home + ", implement this customization and record it with the plugin-malleability skill. Prior art in the record must be the implementation you just did (references/record-format.md), not a sketch. Verify live before enabled: true. Do not git reset. Do not commit. Request: " + request)
   }
 
   function launchReapplyPlugin(pluginId, ids) {
@@ -143,7 +143,7 @@ Item {
     var scope = list.length
       ? " Re-apply only these customizations, in order: " + list.join(", ") + "."
       : " Re-apply its recorded customizations one by one."
-    launchPrompt("Plugin '" + id + "' at " + home + " is reset to current upstream (HEAD, not a fetch)." + scope + " Use the plugin-maleability skill. Skip drafts that still have a placeholder Goal. For each one, read the record, re-implement the Goal from Prior art as a map, then rewrite that Prior art from the implementation you just did. Verify live before enabled: true. Do not git reset; the helper already did. Do not commit.")
+    launchPrompt("Plugin '" + id + "' at " + home + " is reset to current upstream (HEAD, not a fetch)." + scope + " Use the plugin-malleability skill. Skip drafts that still have a placeholder Goal. For each one, read the record, re-implement the Goal from Prior art as a map, then rewrite that Prior art from the implementation you just did. Verify live before enabled: true. Do not git reset; the helper already did. Do not commit.")
   }
 
   function runAction(kind, pluginId, thenReapply) {

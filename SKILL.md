@@ -1,27 +1,27 @@
 ---
-name: plugin-maleability
+name: plugin-malleability
 description: >
-  Companion skill for the Plugin Maleability Omarchy bar widget. That widget
+  Companion skill for the Plugin Malleability Omarchy bar widget. That widget
   launches the user's default agent with prompts that name this skill
   (Customize, Refine, Re-apply, and the rest of its buttons). Users also
-  invoke it themselves when they want Maleability to record, refine, re-apply,
+  invoke it themselves when they want Malleability to record, refine, re-apply,
   reset, update, or delete a local Omarchy shell-plugin customization. Use
-  whenever Plugin Maleability is in play, including /plugin-maleability.
+  whenever Plugin Malleability is in play, including /plugin-malleability.
   Do not use for writing a new plugin from scratch.
 ---
 
-# Plugin Maleability
+# Plugin Malleability
 
 Treat `~/.config/omarchy/plugins/<id>/` as disposable. Intent lives in
-`~/.config/omarchy/plugin-maleability/<id>/<slug>.md`. Never commit into a
+`~/.config/omarchy/plugin-malleability/<id>/<slug>.md`. Never commit into a
 third-party plugin repo. Never edit `/usr/share/omarchy/`.
 
-Skip this plugin itself (`djschnei21.plugin-maleability`).
+Skip this plugin itself (`djschnei21.plugin-malleability`).
 
 Scanner:
 
 ```bash
-python3 ~/.config/omarchy/plugins/djschnei21.plugin-maleability/status
+python3 ~/.config/omarchy/plugins/djschnei21.plugin-malleability/status
 ```
 
 `--bootstrap` writes draft records. `--fetch` updates remotes.

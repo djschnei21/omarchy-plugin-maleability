@@ -5,6 +5,31 @@ set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATUS="$PLUGIN_DIR/status"
+PLUGIN_ID="djschnei21.plugin-malleability"
+LEGACY_PLUGIN_ID="djschnei21.plugin-maleability"
+SKILL_NAME="plugin-malleability"
+
+# Older checkouts lived under the misspelled plugin id.
+parent="$(dirname "$PLUGIN_DIR")"
+dest="$parent/$PLUGIN_ID"
+if [[ $(basename "$PLUGIN_DIR") == "$LEGACY_PLUGIN_ID" && ! -e $dest ]]; then
+  mv "$PLUGIN_DIR" "$dest"
+  PLUGIN_DIR="$dest"
+  STATUS="$PLUGIN_DIR/status"
+fi
+
+shell_json="$HOME/.config/omarchy/shell.json"
+if [[ -f $shell_json ]]; then
+  python3 - "$shell_json" "$LEGACY_PLUGIN_ID" "$PLUGIN_ID" <<'PY'
+from pathlib import Path
+import sys
+path, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+text = path.read_text()
+needle, repl = f'"{old}"', f'"{new}"'
+if needle in text:
+    path.write_text(text.replace(needle, repl))
+PY
+fi
 
 skill_dirs=(
   "$HOME/.agents/skills"
@@ -14,21 +39,34 @@ skill_dirs=(
   "$HOME/.grok/skills"
 )
 
+ours_skill() {
+  local dest=$1
+  local plugin
+  plugin=$(readlink -f "$PLUGIN_DIR")
+  if [[ -L $dest ]]; then
+    [[ $(readlink -f "$dest" || true) == "$plugin" ]]
+    return
+  fi
+  if [[ -L $dest/SKILL.md ]]; then
+    [[ $(readlink -f "$dest/SKILL.md" || true) == "$plugin/SKILL.md" ]]
+    return
+  fi
+  return 1
+}
+
 for dir in "${skill_dirs[@]}"; do
   mkdir -p "$dir"
-  # Previous versions symlinked the whole plugin tree as this skill name.
-  if [[ -L $dir/plugin-maleability ]]; then
-    rm -f "$dir/plugin-maleability"
-  fi
-  mkdir -p "$dir/plugin-maleability"
-  ln -sfn "$PLUGIN_DIR/SKILL.md" "$dir/plugin-maleability/SKILL.md"
-  ln -sfn "$PLUGIN_DIR/references" "$dir/plugin-maleability/references"
-  if [[ -L $dir/plugin-customizations ]]; then
-    old=$(readlink -f "$dir/plugin-customizations" || true)
-    if [[ $old == "$(readlink -f "$PLUGIN_DIR")" ]]; then
-      rm -f "$dir/plugin-customizations"
+  for old in plugin-maleability plugin-customizations; do
+    if ours_skill "$dir/$old"; then
+      rm -rf "$dir/$old"
     fi
+  done
+  if [[ -L $dir/$SKILL_NAME ]]; then
+    rm -f "$dir/$SKILL_NAME"
   fi
+  mkdir -p "$dir/$SKILL_NAME"
+  ln -sfn "$PLUGIN_DIR/SKILL.md" "$dir/$SKILL_NAME/SKILL.md"
+  ln -sfn "$PLUGIN_DIR/references" "$dir/$SKILL_NAME/references"
 done
 
 exec python3 "$STATUS" --bootstrap "$@"

@@ -10,7 +10,7 @@ has() { jq -e "$1" <<<"$2" >/dev/null; }
 sandbox=$(mktemp -d)
 trap 'rm -rf "$sandbox"' EXIT
 export HOME="$sandbox"
-mkdir -p "$HOME/.config/omarchy/plugins" "$HOME/.config/omarchy/plugin-maleability" "$sandbox/bin" "$sandbox/catalog/omarchy.clock"
+mkdir -p "$HOME/.config/omarchy/plugins" "$sandbox/bin" "$sandbox/catalog/omarchy.clock"
 
 ln -s "$(command -v jq)" "$sandbox/bin/jq"
 ln -s "$(command -v git)" "$sandbox/bin/git"
@@ -38,11 +38,20 @@ chmod +x "$sandbox/bin/omarchy-plugin-validate"
 
 export PATH="$sandbox/bin:$PATH"
 
+legacy="$HOME/.config/omarchy/plugin-maleability"
+mkdir -p "$legacy/acme.legacy"
+printf '%s\n' '---' 'id: leftover' 'plugin: acme.legacy' 'title: leftover' 'enabled: false' '---' '# leftover' >"$legacy/acme.legacy/leftover.md"
+python3 "$STATUS" >/dev/null
+[[ -d $HOME/.config/omarchy/plugin-malleability/acme.legacy ]] || fail "did not migrate records dir"
+[[ -f $HOME/.config/omarchy/plugin-malleability/acme.legacy/leftover.md ]] || fail "migrated record missing"
+[[ ! -e $legacy ]] || fail "legacy records dir still present"
+echo "records migrate ok"
+
 write_record() {
   local plugin=$1 id=$2
   shift 2
-  mkdir -p "$HOME/.config/omarchy/plugin-maleability/$plugin"
-  cat >"$HOME/.config/omarchy/plugin-maleability/$plugin/$id.md"
+  mkdir -p "$HOME/.config/omarchy/plugin-malleability/$plugin"
+  cat >"$HOME/.config/omarchy/plugin-malleability/$plugin/$id.md"
 }
 
 git_plugin() {
@@ -202,7 +211,7 @@ y
 MD
 # put the real HEAD into applied.commit so it is applied, not stale
 head=$(git -C "$HOME/.config/omarchy/plugins/acme.two" rev-parse HEAD)
-sed -i "s/HEADPLACE/${head}/" "$HOME/.config/omarchy/plugin-maleability/acme.two/keep-me.md"
+sed -i "s/HEADPLACE/${head}/" "$HOME/.config/omarchy/plugin-malleability/acme.two/keep-me.md"
 
 out=$(python3 "$STATUS")
 assert_jq '.plugins[] | select(.id=="acme.two") | .customizations[0].status == "applied"' "$out" "applied after backfill"
@@ -211,13 +220,13 @@ assert_jq '.plugins[] | select(.id=="acme.two") | .customizations[0].status == "
 # (record lives under acme.two; deleting with unknown plugin)
 out=$(python3 "$STATUS" --delete missing.plugin keep-me 2>/dev/null) || true
 assert_jq '.ok == false' "$out" "delete unknown plugin fails"
-[[ -f $HOME/.config/omarchy/plugin-maleability/acme.two/keep-me.md ]] || fail "record must survive failed delete"
+[[ -f $HOME/.config/omarchy/plugin-malleability/acme.two/keep-me.md ]] || fail "record must survive failed delete"
 
 # enabled delete on acme.two resets checkout and removes markdown
 echo "tweaked" >"$HOME/.config/omarchy/plugins/acme.two/Panel.qml"
 out=$(python3 "$STATUS" --delete acme.two keep-me)
 assert_jq '.ok == true' "$out" "enabled delete ok"
-[[ ! -f $HOME/.config/omarchy/plugin-maleability/acme.two/keep-me.md ]] || fail "enabled delete removes markdown"
+[[ ! -f $HOME/.config/omarchy/plugin-malleability/acme.two/keep-me.md ]] || fail "enabled delete removes markdown"
 grep -q stock "$HOME/.config/omarchy/plugins/acme.two/Panel.qml" || fail "enabled delete resets checkout"
 
 # --- Error JSON has no plugins ---
@@ -261,7 +270,7 @@ p = Path("$clone_rec")
 text = p.read_text()
 text = text.replace("enabled: false", "enabled: true")
 text = text.replace("bootstrapped: true", "bootstrapped: false")
-text = text.replace("Draft — refine with the plugin-maleability skill.", "Keep extra.qml.")
+text = text.replace("Draft — refine with the plugin-malleability skill.", "Keep extra.qml.")
 p.write_text(text)
 PY
 out=$(python3 "$STATUS")
@@ -382,15 +391,15 @@ assert_jq '.attention == true' "$out" "unrecorded lights attention"
 
 # --- Reset marks enabled false; unapplied does not light attention if no drafts ---
 # Remove leftover drafts from acme.one
-rm -rf "$HOME/.config/omarchy/plugin-maleability/acme.one"
+rm -rf "$HOME/.config/omarchy/plugin-malleability/acme.one"
 out=$(python3 "$STATUS" --reset acme.four)
 assert_jq '.ok == true' "$out" "reset ok"
 assert_jq '.plugins[] | select(.id=="acme.four") | .customizations[0].status == "unapplied"' "$out" "reset unapplied"
 # attention may still be true from other plugins; check this plugin isn't the sole reason
 # isolated: only acme.four would be unapplied among remaining... user.clock is stale, acme.three drift
 # Check unapplied is counted and NOT in the attention tuple by constructing a clean scan:
-rm -rf "$HOME/.config/omarchy/plugin-maleability/user.clock" \
-       "$HOME/.config/omarchy/plugin-maleability/acme.three" \
+rm -rf "$HOME/.config/omarchy/plugin-malleability/user.clock" \
+       "$HOME/.config/omarchy/plugin-malleability/acme.three" \
        "$HOME/.config/omarchy/plugins/user.clock" \
        "$HOME/.config/omarchy/plugins/acme.three" \
        "$HOME/.config/omarchy/plugins/acme.one" \

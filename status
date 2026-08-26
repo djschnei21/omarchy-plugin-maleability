@@ -24,9 +24,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-SELF_ID = "djschnei21.plugin-maleability"
+SELF_ID = "djschnei21.plugin-malleability"
+LEGACY_SELF_ID = "djschnei21.plugin-maleability"
+SELF_IDS = {SELF_ID, LEGACY_SELF_ID}
 PLUGINS_DIR = Path.home() / ".config/omarchy/plugins"
-RECORDS_DIR = Path.home() / ".config/omarchy/plugin-maleability"
+RECORDS_DIR = Path.home() / ".config/omarchy/plugin-malleability"
+LEGACY_RECORDS_DIR = Path.home() / ".config/omarchy/plugin-maleability"
 NOTIFY_STATE = RECORDS_DIR / ".notify-state"
 LOCK_PATH = RECORDS_DIR / ".lock"
 SELF_DIR = Path(__file__).resolve().parent
@@ -68,8 +71,15 @@ def fail_payload(error, **extra):
     return 1
 
 
+def migrate_records_dir() -> None:
+    if LEGACY_RECORDS_DIR.is_dir() and not RECORDS_DIR.exists():
+        RECORDS_DIR.parent.mkdir(parents=True, exist_ok=True)
+        LEGACY_RECORDS_DIR.rename(RECORDS_DIR)
+
+
 class records_lock:
     def __enter__(self):
+        migrate_records_dir()
         RECORDS_DIR.mkdir(parents=True, exist_ok=True)
         self.fd = open(LOCK_PATH, "a")
         fcntl.flock(self.fd, fcntl.LOCK_EX)
@@ -483,13 +493,13 @@ files:
 
 ## Goal
 
-Draft — refine with the plugin-maleability skill.
+Draft — refine with the plugin-malleability skill.
 
 Mechanical summary: {summarize_files(files)}.
 
 ## Why / decisions
 
-Unknown. Captured automatically when Plugin Maleability was
+Unknown. Captured automatically when Plugin Malleability was
 installed, because this checkout differed from upstream.
 
 ## Where to look
@@ -738,7 +748,7 @@ def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
         return None
     meta = plugin_manifest(path)
     pid = meta["id"]
-    if pid == SELF_ID or path.name == SELF_ID:
+    if pid in SELF_IDS or path.name in SELF_IDS:
         return None
     kind = "plain"
     head = ""
@@ -924,12 +934,12 @@ def notify_if_needed(payload: dict):
             "-u",
             "normal",
             "--app-name",
-            "Plugin Maleability",
-            "Plugin Maleability needs attention",
+            "Plugin Malleability",
+            "Plugin Malleability needs attention",
             detail + ". Open the panel to view or apply each one.",
             "--exec",
             "omarchy-shell",
-            "djschnei21.plugin-maleability",
+            "djschnei21.plugin-malleability",
             "show",
         ]
     )

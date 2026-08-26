@@ -6,8 +6,8 @@ import qs.Ui
 
 Panel {
   id: root
-  moduleName: "djschnei21.plugin-maleability"
-  ipcTarget: "djschnei21.plugin-maleability"
+  moduleName: "djschnei21.plugin-malleability"
+  ipcTarget: "djschnei21.plugin-malleability"
   manageIpc: false
 
   property var anchorItem: null
@@ -238,7 +238,7 @@ Panel {
 
   function debugState() {
     return JSON.stringify({
-      v: model && model.pluginVersion ? model.pluginVersion : "1.1.0",
+      v: model && model.pluginVersion ? model.pluginVersion : "1.2.0",
       page: root.page,
       plugins: root.pluginIds.length,
       plugin: root.selectedPlugin ? root.selectedPlugin.id : ""
@@ -350,7 +350,7 @@ Panel {
             title: {
               if (root.page === "item" && root.selectedItem) return root.selectedItem.title
               if (root.page === "plugin" && root.selectedPlugin) return root.selectedPlugin.name
-              return "Plugin Maleability"
+              return "Plugin Malleability"
             }
             meta: root.heroMeta()
             foreground: root.foreground

@@ -6,7 +6,7 @@ import qs.Ui
 // Bar entry for a details panel. Quattro summons/hides this widget, not Panel.qml.
 BarWidget {
   id: root
-  moduleName: "djschnei21.plugin-maleability"
+  moduleName: "djschnei21.plugin-malleability"
 
   readonly property var model: bar && bar.shell && typeof bar.shell.serviceFor === "function"
     ? bar.shell.serviceFor(root.moduleName)
@@ -65,7 +65,7 @@ BarWidget {
   }
 
   IpcHandler {
-    target: "djschnei21.plugin-maleability"
+    target: "djschnei21.plugin-malleability"
 
     function open(): void { root.open() }
     function close(): void { root.close() }
@@ -78,7 +78,7 @@ BarWidget {
     }
     function debug(): string {
       if (panelLoader.item) return panelLoader.item.debugState()
-      return JSON.stringify({ v: root.model && root.model.pluginVersion ? root.model.pluginVersion : "1.1.0", loaded: false })
+      return JSON.stringify({ v: root.model && root.model.pluginVersion ? root.model.pluginVersion : "1.2.0", loaded: false })
     }
   }
 
@@ -87,7 +87,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: "󰠱"
-    tooltipText: root.attention ? "Plugin Maleability needs attention" : "Plugin Maleability"
+    tooltipText: root.attention ? "Plugin Malleability needs attention" : "Plugin Malleability"
     active: root.attention
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton || buttonCode === Qt.MiddleButton) {

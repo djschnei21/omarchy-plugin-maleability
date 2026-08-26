@@ -1,4 +1,4 @@
-# Plugin Maleability
+# Plugin Malleability
 
 An Omarchy bar widget plus an agent skill that keep local tweaks to other
 shell plugins after those plugins update — a play on the malleable computer.
@@ -10,7 +10,7 @@ worked example — outside those checkouts, lights the bar when an update would
 wipe the work, and re-applies it through whatever agent `omarchy default agent`
 selected.
 
-Cloned built-ins (`omarchy plugin clone`) have no git origin. Maleability
+Cloned built-ins (`omarchy plugin clone`) have no git origin. Malleability
 fingerprints the first-party catalog source and treats a moved source the
 same way: stale, with Update / Re-apply.
 
@@ -21,8 +21,13 @@ second Quickshell instance.
 ## Install
 
 ```sh
-omarchy plugin add https://github.com/djschnei21/omarchy-plugin-maleability.git --enable
+omarchy plugin add https://github.com/djschnei21/omarchy-plugin-malleability.git --enable
 ```
+
+The plugin id, skill, records path, and GitHub repo are **malleability** (two L’s).
+Older releases used the misspelling *maleability*. GitHub redirects the old
+repo URL. `scripts/install` moves skill links, records, and a leftover
+checkout directory, and rewrites the bar widget id in `shell.json`.
 
 On first load the widget:
 
@@ -48,25 +53,25 @@ while the panel is open.
 ## Configure
 
 ```sh
-omarchy bar move djschnei21.plugin-maleability --section right
+omarchy bar move djschnei21.plugin-malleability --section right
 ```
 
 ## Remove
 
 ```sh
-omarchy plugin remove djschnei21.plugin-maleability
+omarchy plugin remove djschnei21.plugin-malleability
 ```
 
-Records at `~/.config/omarchy/plugin-maleability/` stay, so a later reinstall
+Records at `~/.config/omarchy/plugin-malleability/` stay, so a later reinstall
 can still re-apply them. Skill links under `$HOME` will point at a removed
 tree; drop them if you are not reinstalling:
 
 ```sh
-rm -rf ~/.agents/skills/plugin-maleability \
-      ~/.claude/skills/plugin-maleability \
-      ~/.codex/skills/plugin-maleability \
-      ~/.pi/agent/skills/plugin-maleability \
-      ~/.grok/skills/plugin-maleability
+rm -rf ~/.agents/skills/plugin-malleability \
+      ~/.claude/skills/plugin-malleability \
+      ~/.codex/skills/plugin-malleability \
+      ~/.pi/agent/skills/plugin-malleability \
+      ~/.grok/skills/plugin-malleability
 ```
 
 ## Requirements
@@ -81,7 +86,7 @@ This plugin is unsandboxed, like every Omarchy plugin. It does not ask for
 `sudo` or `pkexec`.
 
 - `scripts/install` writes skill links under `$HOME` and bootstraps records
-  under `~/.config/omarchy/plugin-maleability/`.
+  under `~/.config/omarchy/plugin-malleability/`.
 - The service runs `python3 status` in the shell process and launches the
   default agent with `omarchy-agent-prompt`.
 - Removal is `omarchy plugin remove`. It does not delete records.
@@ -89,7 +94,7 @@ This plugin is unsandboxed, like every Omarchy plugin. It does not ask for
 ## Development
 
 ```sh
-PLUGIN_DIR="$HOME/.config/omarchy/plugins/djschnei21.plugin-maleability"
+PLUGIN_DIR="$HOME/.config/omarchy/plugins/djschnei21.plugin-malleability"
 bash "$PLUGIN_DIR/tests/status-test.sh"
 omarchy plugin validate "$PLUGIN_DIR"
 qmllint -I "$OMARCHY_PATH/shell" \

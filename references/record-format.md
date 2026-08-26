@@ -2,7 +2,7 @@
 
 One markdown file per intent:
 
-`~/.config/omarchy/plugin-maleability/<plugin-id>/<slug>.md`
+`~/.config/omarchy/plugin-malleability/<plugin-id>/<slug>.md`
 
 Not a patch. After an upstream refactor the agent re-implements the **Goal**
 using **Where to look** and **Prior art** as a map.
