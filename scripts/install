@@ -39,28 +39,16 @@ skill_dirs=(
   "$HOME/.grok/skills"
 )
 
-ours_skill() {
-  local dest=$1
-  local plugin
-  plugin=$(readlink -f "$PLUGIN_DIR")
-  if [[ -L $dest ]]; then
-    [[ $(readlink -f "$dest" || true) == "$plugin" ]]
-    return
-  fi
-  if [[ -L $dest/SKILL.md ]]; then
-    [[ $(readlink -f "$dest/SKILL.md" || true) == "$plugin/SKILL.md" ]]
-    return
-  fi
-  return 1
-}
-
 for dir in "${skill_dirs[@]}"; do
   mkdir -p "$dir"
-  for old in plugin-maleability plugin-customizations; do
-    if ours_skill "$dir/$old"; then
-      rm -rf "$dir/$old"
+  # Misspelled skill name is ours; drop it even if the symlink is now broken.
+  rm -rf "$dir/plugin-maleability"
+  if [[ -L $dir/plugin-customizations ]]; then
+    raw=$(readlink "$dir/plugin-customizations" || true)
+    if [[ $raw == *plugin-maleability* || $raw == *plugin-malleability* ]]; then
+      rm -f "$dir/plugin-customizations"
     fi
-  done
+  fi
   if [[ -L $dir/$SKILL_NAME ]]; then
     rm -f "$dir/$SKILL_NAME"
   fi
