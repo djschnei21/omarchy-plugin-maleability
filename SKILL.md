@@ -13,15 +13,15 @@ description: >
 # Plugin Maleability
 
 Treat `~/.config/omarchy/plugins/<id>/` as disposable. Intent lives in
-`~/.config/omarchy/plugin-customizations/<id>/<slug>.md`. Never commit into a
+`~/.config/omarchy/plugin-maleability/<id>/<slug>.md`. Never commit into a
 third-party plugin repo. Never edit `/usr/share/omarchy/`.
 
-Skip this plugin itself (`djschnei21.plugin-customizations`).
+Skip this plugin itself (`djschnei21.plugin-maleability`).
 
 Scanner:
 
 ```bash
-python3 ~/.config/omarchy/plugins/djschnei21.plugin-customizations/status
+python3 ~/.config/omarchy/plugins/djschnei21.plugin-maleability/status
 ```
 
 `--bootstrap` writes draft records. `--fetch` updates remotes.

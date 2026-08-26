@@ -3,8 +3,8 @@
 set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PLUGIN_ID="djschnei21.plugin-customizations"
-RECORDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugin-customizations"
+PLUGIN_ID="djschnei21.plugin-maleability"
+RECORDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugin-maleability"
 
 skill_dirs=(
   "$HOME/.agents/skills/plugin-maleability"

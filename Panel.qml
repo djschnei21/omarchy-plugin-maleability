@@ -8,8 +8,8 @@ import qs.Ui
 
 Panel {
   id: root
-  moduleName: "djschnei21.plugin-customizations"
-  ipcTarget: "djschnei21.plugin-customizations"
+  moduleName: "djschnei21.plugin-maleability"
+  ipcTarget: "djschnei21.plugin-maleability"
   manageIpc: false
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
@@ -164,7 +164,7 @@ Panel {
     function refresh(): string { model.refresh(true); return "ok" }
     function debug(): string {
       return JSON.stringify({
-        v: "1.0.2",
+        v: "1.0.3",
         page: root.page,
         plugins: root.pluginIds.length,
         plugin: root.selectedPlugin ? root.selectedPlugin.id : ""

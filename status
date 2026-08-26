@@ -21,10 +21,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-SELF_ID = "djschnei21.plugin-customizations"
+SELF_ID = "djschnei21.plugin-maleability"
 SKILL_NAME = "plugin-maleability"
 PLUGINS_DIR = Path.home() / ".config/omarchy/plugins"
-RECORDS_DIR = Path.home() / ".config/omarchy/plugin-customizations"
+RECORDS_DIR = Path.home() / ".config/omarchy/plugin-maleability"
 NOTIFY_STATE = RECORDS_DIR / ".notify-state"
 SELF_DIR = Path(__file__).resolve().parent
 MAX_DIFF = 8000
@@ -750,7 +750,7 @@ def notify_if_needed(payload: dict):
             detail + ". Open the panel to view or apply each one.",
             "--exec",
             "omarchy-shell",
-            "djschnei21.plugin-customizations",
+            "djschnei21.plugin-maleability",
             "show",
         ]
     )

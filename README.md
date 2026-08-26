@@ -35,11 +35,11 @@ Per-record **Re-apply** / **Refine** still run on that item only.
 Stock `omarchy plugin remove` only deletes the checkout. Use this instead:
 
 ```bash
-~/.config/omarchy/plugins/djschnei21.plugin-customizations/scripts/uninstall
+~/.config/omarchy/plugins/djschnei21.plugin-maleability/scripts/uninstall
 ```
 
 That removes skill links, the intent store at
-`~/.config/omarchy/plugin-customizations/`, and the plugin itself. The panel's
+`~/.config/omarchy/plugin-maleability/`, and the plugin itself. The panel's
 Uninstall button runs the same script.
 
 ## Requirements
