@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "id": "djschnei21.plugin-maleability",
   "name": "Plugin Maleability",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "djschnei21",
   "license": "MIT",
   "description": "Treat Omarchy plugins as malleable: record local tweaks outside their git trees, and re-apply them through your default agent after an update.",
   "homepage": "https://github.com/djschnei21/omarchy-plugin-maleability",
   "kinds": ["bar-widget"],
   "entryPoints": {
-    "barWidget": "Panel.qml"
+    "barWidget": "BarWidget.qml"
   },
   "barWidget": {
     "displayName": "Plugin Maleability",

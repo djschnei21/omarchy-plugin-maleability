@@ -1,8 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Layouts
 import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -11,6 +9,11 @@ Panel {
   moduleName: "djschnei21.plugin-maleability"
   ipcTarget: "djschnei21.plugin-maleability"
   manageIpc: false
+
+  property var anchorItem: null
+  property var hostWidget: null
+  readonly property var barIdentity: hostWidget || root
+  readonly property bool attention: model.attention === true
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -27,9 +30,6 @@ Panel {
   property bool updateOpen: false
   property bool deleteArmed: false
   property string customizeText: ""
-
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
 
   function findPlugin(id) {
     var list = model.plugins || []
@@ -139,6 +139,38 @@ Panel {
     deleteArmTimer.stop()
   }
 
+  function open() {
+    root.controller.show()
+  }
+
+  function close() {
+    root.controller.hide()
+  }
+
+  function toggle() {
+    if (root.opened) root.close()
+    else root.open()
+  }
+
+  function switchPanel(direction) {
+    if (root.bar && typeof root.bar.switchPanelFrom === "function")
+      return root.bar.switchPanelFrom(root.barIdentity, direction)
+    return false
+  }
+
+  function refreshModel() {
+    model.refresh(true)
+  }
+
+  function debugState() {
+    return JSON.stringify({
+      v: "1.0.4",
+      page: root.page,
+      plugins: root.pluginIds.length,
+      plugin: root.selectedPlugin ? root.selectedPlugin.id : ""
+    })
+  }
+
   onOpenedChanged: if (opened) {
     clearArms()
     goHome()
@@ -154,41 +186,10 @@ Panel {
     function onLoadingChanged() { if (!model.loading) root.rebuild() }
   }
 
-  IpcHandler {
-    target: root.ipcTarget
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function show(): void { root.open() }
-    function hide(): void { root.close() }
-    function toggle(): void { root.toggle() }
-    function refresh(): string { model.refresh(true); return "ok" }
-    function debug(): string {
-      return JSON.stringify({
-        v: "1.0.3",
-        page: root.page,
-        plugins: root.pluginIds.length,
-        plugin: root.selectedPlugin ? root.selectedPlugin.id : ""
-      })
-    }
-  }
-
-  BarIconButton {
-    id: button
-    anchors.fill: parent
-    bar: root.bar
-    text: "󰠱"
-    tooltipText: model.attention ? "Plugin Maleability needs attention" : "Plugin Maleability"
-    active: model.attention
-    onPressed: function(buttonCode) {
-      if (buttonCode === Qt.RightButton || buttonCode === Qt.MiddleButton) model.refresh(true)
-      else root.toggle()
-    }
-  }
-
   KeyboardPanel {
     id: panel
-    anchorItem: button
-    owner: root
+    anchorItem: root.anchorItem
+    owner: root.barIdentity
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
@@ -204,6 +205,7 @@ Panel {
         if (root.page === "plugin") { root.goHome(); return }
         root.close()
       }
+      onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
         if (text === "r" || text === "R") model.refresh(true)
       }
