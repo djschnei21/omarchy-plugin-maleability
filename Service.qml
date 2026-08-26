@@ -11,6 +11,7 @@ Item {
   property bool attention: false
   property var counts: ({ stale: 0, draft: 0, unrecorded: 0, updateAvailable: 0, applied: 0 })
   property var plugins: []
+  property int pluginsRevision: 0
   property string message: "Loading…"
   property string _stdout: ""
   property string _stderr: ""
@@ -71,6 +72,7 @@ Item {
       attention = data.attention === true
       counts = data.counts || counts
       plugins = Array.isArray(data.plugins) ? data.plugins : []
+      pluginsRevision++
       message = attention ? "Customizations need attention" : "All recorded customizations are applied"
     } catch (error) {
       message = "Could not read customization status."

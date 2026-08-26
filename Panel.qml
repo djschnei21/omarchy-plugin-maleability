@@ -18,6 +18,12 @@ Panel {
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   property bool uninstallArmed: false
   property var selected: null
+  property var itemMap: ({})
+  property var staleKeys: []
+  property var draftKeys: []
+  property var unrecordedKeys: []
+  property var behindKeys: []
+  property var appliedKeys: []
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -113,16 +119,42 @@ Panel {
       panelFlick.contentY = 0
   }
 
+  function rebuildRows() {
+    var map = {}
+    function take(kind) {
+      var rows = root.rowsFor(kind)
+      var keys = []
+      for (var i = 0; i < rows.length; i++) {
+        map[rows[i].key] = rows[i]
+        keys.push(rows[i].key)
+      }
+      return keys
+    }
+    staleKeys = take("stale")
+    draftKeys = take("draft")
+    unrecordedKeys = take("unrecorded")
+    behindKeys = take("behind")
+    appliedKeys = take("applied")
+    itemMap = map
+  }
+
   onOpenedChanged: if (opened) {
     uninstallArmed = false
     uninstallArmTimer.stop()
     selected = null
     if (panelFlick) panelFlick.contentY = 0
     model.refresh(true)
+    root.rebuildRows()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   Service { id: model; settings: root.settings }
+
+  Connections {
+    target: model
+    function onPluginsRevisionChanged() { root.rebuildRows() }
+    function onLoadingChanged() { if (!model.loading) root.rebuildRows() }
+  }
 
   IpcHandler {
     target: root.ipcTarget
@@ -338,27 +370,27 @@ Panel {
 
           StatusSection {
             title: "NEEDS RE-APPLY"
-            model: root.rowsFor("stale")
+            keys: root.staleKeys
           }
           StatusSection {
             title: "DRAFTS FROM INSTALL"
-            model: root.rowsFor("draft")
+            keys: root.draftKeys
           }
           StatusSection {
             title: "UNRECORDED EDITS"
-            model: root.rowsFor("unrecorded")
+            keys: root.unrecordedKeys
           }
           StatusSection {
             title: "UPDATES AVAILABLE"
-            model: root.rowsFor("behind")
+            keys: root.behindKeys
           }
           StatusSection {
             title: "APPLIED"
             emptyText: "No recorded customizations yet."
-            model: root.rowsFor("applied")
-            showWhenEmpty: root.rowsFor("stale").length === 0 &&
-              root.rowsFor("draft").length === 0 &&
-              root.rowsFor("unrecorded").length === 0
+            keys: root.appliedKeys
+            showWhenEmpty: root.staleKeys.length === 0 &&
+              root.draftKeys.length === 0 &&
+              root.unrecordedKeys.length === 0
           }
         }
       }
@@ -375,22 +407,22 @@ Panel {
   component StatusSection: Column {
     id: section
     property string title: ""
-    property var model: []
+    property var keys: []
     property string emptyText: ""
     property bool showWhenEmpty: false
-    visible: !root.selected && (model.length > 0 || (showWhenEmpty && emptyText !== ""))
+    visible: !root.selected && (keys.length > 0 || (showWhenEmpty && emptyText !== ""))
     width: parent ? parent.width : 0
     spacing: Style.space(8)
 
     PanelSeparator { foreground: root.foreground }
     PanelSectionHeader {
       width: parent.width
-      text: section.title + (section.model.length > 0 ? "  " + section.model.length : "")
+      text: section.title + (section.keys.length > 0 ? "  " + section.keys.length : "")
       foreground: root.foreground
       fontFamily: root.fontFamily
     }
     Text {
-      visible: section.model.length === 0
+      visible: section.keys.length === 0
       width: parent.width
       text: section.emptyText
       color: root.dim
@@ -399,59 +431,26 @@ Panel {
       horizontalAlignment: Text.AlignHCenter
     }
     Repeater {
-      model: section.model ? section.model.length : 0
-      MouseArea {
-        id: row
+      model: section.keys.length
+      Button {
         required property int index
-        readonly property var item: section.model[index]
         width: section.width
-        implicitHeight: Math.max(Style.space(44), labels.implicitHeight + Style.space(16))
-        height: implicitHeight
-        hoverEnabled: true
-        preventStealing: true
-        cursorShape: Qt.PointingHandCursor
-        onClicked: root.selectRow(row.item)
-
-        Rectangle {
-          anchors.fill: parent
-          radius: Style.cornerRadius
-          color: row.containsMouse ? Style.hoverFillFor(root.foreground, Color.accent) : "transparent"
+        leftAlign: true
+        bordered: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.caption
+        verticalPadding: Style.spacing.controlPaddingY
+        text: {
+          var key = section.keys[index]
+          var item = key ? root.itemMap[key] : null
+          if (!item)
+            return key || ""
+          return item.name + "  ·  " + item.title
         }
-        Column {
-          id: labels
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          anchors.leftMargin: Style.space(9)
-          anchors.rightMargin: Style.space(28)
-          spacing: Style.space(1)
-          Text {
-            width: parent.width
-            text: row.item ? (row.item.name || row.item.pluginId) : ""
-            textFormat: Text.PlainText
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            elide: Text.ElideRight
-          }
-          Text {
-            width: parent.width
-            text: row.item ? (row.item.title + (row.item.detail ? " · " + row.item.detail : "")) : ""
-            textFormat: Text.PlainText
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-          }
-        }
-        Text {
-          anchors.right: parent.right
-          anchors.rightMargin: Style.space(9)
-          anchors.verticalCenter: parent.verticalCenter
-          text: "󰅂"
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
+        onClicked: {
+          var key = section.keys[index]
+          root.selectRow(key ? root.itemMap[key] : null)
         }
       }
     }
