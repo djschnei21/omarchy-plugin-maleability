@@ -13,7 +13,13 @@ Panel {
   property var anchorItem: null
   property var hostWidget: null
   readonly property var barIdentity: hostWidget || root
-  readonly property bool attention: model.attention === true
+  readonly property var model: {
+    var sh = bar && bar.shell ? bar.shell : null
+    if (sh && typeof sh.serviceFor === "function")
+      return sh.serviceFor(root.moduleName)
+    return null
+  }
+  readonly property bool attention: !!(model && model.attention === true)
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -24,25 +30,59 @@ Panel {
   property var selectedPlugin: null
   property var selectedItem: null
   property var pluginIds: []
-  property bool resetArmed: false
-  property bool reapplyArmed: false
   property bool updateOpen: false
-  property bool deleteArmed: false
   property string customizeText: ""
+  property string confirmKind: ""
+  property string confirmMessage: ""
 
   function findPlugin(id) {
-    var list = model.plugins || []
+    var list = (model && model.plugins) ? model.plugins : []
     for (var i = 0; i < list.length; i++)
       if (list[i].id === id)
         return list[i]
     return null
   }
 
+  function pluginScore(p) {
+    if (!p)
+      return 0
+    var n = 0
+    if (p.unrecordedFiles && p.unrecordedFiles.length)
+      n += 4
+    if (p.behind)
+      n += 3
+    var recs = p.customizations || []
+    for (var i = 0; i < recs.length; i++) {
+      var s = recs[i].status
+      if (s === "stale") n += 5
+      else if (s === "drift") n += 4
+      else if (s === "draft") n += 3
+      else if (s === "unapplied") n += 1
+    }
+    return n
+  }
+
   function rebuild() {
-    var ids = []
-    var list = model.plugins || []
+    var scored = []
+    var list = (model && model.plugins) ? model.plugins : []
     for (var i = 0; i < list.length; i++)
-      ids.push(list[i].id)
+      scored.push({
+        id: list[i].id,
+        name: String(list[i].name || list[i].id).toLowerCase(),
+        score: pluginScore(list[i])
+      })
+    scored.sort(function(a, b) {
+      if (b.score !== a.score)
+        return b.score - a.score
+      if (a.name < b.name)
+        return -1
+      if (a.name > b.name)
+        return 1
+      return String(a.id).localeCompare(String(b.id))
+    })
+    var ids = []
+    for (var j = 0; j < scored.length; j++)
+      ids.push(scored[j].id)
     pluginIds = ids
     if (selectedPlugin) {
       var next = findPlugin(selectedPlugin.id)
@@ -51,14 +91,24 @@ Panel {
         page = "home"
         selectedItem = null
       } else if (selectedItem) {
-        var kept = null
-        var recs = next.customizations || []
-        for (var j = 0; j < recs.length; j++)
-          if (recs[j].id === selectedItem.id)
-            kept = recs[j]
-        selectedItem = kept
-        if (!kept && page === "item")
-          page = "plugin"
+        if (selectedItem.status === "unrecorded") {
+          if (!next.unrecordedFiles || next.unrecordedFiles.length === 0) {
+            selectedItem = null
+            if (page === "item")
+              page = "plugin"
+          } else {
+            selectedItem = unrecordedItem(next)
+          }
+        } else {
+          var kept = null
+          var recs = next.customizations || []
+          for (var k = 0; k < recs.length; k++)
+            if (recs[k].id === selectedItem.id)
+              kept = recs[k]
+          selectedItem = kept
+          if (!kept && page === "item")
+            page = "plugin"
+        }
       }
     }
   }
@@ -67,10 +117,23 @@ Panel {
     return !!(p && p.customizations && p.customizations.length > 0)
   }
 
+  function unrecordedItem(p) {
+    var files = (p && p.unrecordedFiles) ? p.unrecordedFiles : []
+    return {
+      id: "__unrecorded__",
+      title: "Unrecorded local edits",
+      status: "unrecorded",
+      goal: files.length ? ("Record files not yet in a customization: " + files.join(", ")) : "",
+      why: "",
+      files: files,
+      path: ""
+    }
+  }
+
   function pluginSummary(p) {
     if (!p)
       return ""
-    var applied = 0, unapplied = 0, draft = 0, stale = 0
+    var applied = 0, unapplied = 0, draft = 0, stale = 0, drift = 0
     var recs = p.customizations || []
     for (var i = 0; i < recs.length; i++) {
       var s = recs[i].status
@@ -78,12 +141,16 @@ Panel {
       else if (s === "unapplied") unapplied++
       else if (s === "draft") draft++
       else if (s === "stale") stale++
+      else if (s === "drift") drift++
     }
     var bits = []
     if (stale) bits.push(stale + " stale")
+    if (drift) bits.push(drift + " drift")
     if (applied) bits.push(applied + " applied")
     if (unapplied) bits.push(unapplied + " unapplied")
     if (draft) bits.push(draft + " draft")
+    if (p.unrecordedFiles && p.unrecordedFiles.length)
+      bits.push(p.unrecordedFiles.length + " unrecorded")
     if (p.behind) bits.push("update available")
     if (bits.length === 0) return "clean"
     return bits.join(" · ")
@@ -92,6 +159,7 @@ Panel {
   function itemActionLabel(item) {
     if (!item) return ""
     if (item.status === "draft") return "Refine"
+    if (item.status === "unrecorded" || item.status === "drift") return "Record"
     return "Re-apply"
   }
 
@@ -99,10 +167,8 @@ Panel {
     page = "home"
     selectedPlugin = null
     selectedItem = null
-    resetArmed = false
-    reapplyArmed = false
     updateOpen = false
-    deleteArmed = false
+    confirmKind = ""
     customizeText = ""
     if (panelFlick) panelFlick.contentY = 0
   }
@@ -111,10 +177,8 @@ Panel {
     selectedPlugin = findPlugin(id)
     selectedItem = null
     page = selectedPlugin ? "plugin" : "home"
-    resetArmed = false
-    reapplyArmed = false
     updateOpen = false
-    deleteArmed = false
+    confirmKind = ""
     customizeText = ""
     if (panelFlick) panelFlick.contentY = 0
   }
@@ -122,18 +186,30 @@ Panel {
   function goItem(item) {
     selectedItem = item
     page = item ? "item" : "plugin"
-    deleteArmed = false
+    confirmKind = ""
     if (panelFlick) panelFlick.contentY = 0
   }
 
-  function clearArms() {
-    resetArmed = false
-    reapplyArmed = false
-    updateOpen = false
-    deleteArmed = false
-    resetArmTimer.stop()
-    reapplyArmTimer.stop()
-    deleteArmTimer.stop()
+  function askConfirm(kind, message) {
+    confirmKind = kind
+    confirmMessage = message
+  }
+
+  function runConfirmed() {
+    var kind = confirmKind
+    confirmKind = ""
+    if (!model || !selectedPlugin)
+      return
+    if (kind === "reset")
+      model.runAction("reset", selectedPlugin.id, false)
+    else if (kind === "reapply")
+      model.runAction("reset", selectedPlugin.id, true)
+    else if (kind === "update")
+      model.runAction("update", selectedPlugin.id, false)
+    else if (kind === "updateReapply")
+      model.runAction("update", selectedPlugin.id, true)
+    else if (kind === "delete" && selectedItem)
+      model.deleteCustomization(selectedPlugin.id, selectedItem.id)
   }
 
   function open() {
@@ -156,31 +232,66 @@ Panel {
   }
 
   function refreshModel() {
-    model.refresh(true)
+    if (model)
+      model.refresh(true)
   }
 
   function debugState() {
     return JSON.stringify({
-      v: "1.0.5",
+      v: model && model.pluginVersion ? model.pluginVersion : "1.1.0",
       page: root.page,
       plugins: root.pluginIds.length,
       plugin: root.selectedPlugin ? root.selectedPlugin.id : ""
     })
   }
 
+  function heroMeta() {
+    if (!model)
+      return "Loading…"
+    if (model.lastError)
+      return model.lastError
+    if (model.installing)
+      return "Installing skill links…"
+    if (model.acting)
+      return "Working on plugin…"
+    if (model.loading)
+      return "Scanning plugins…"
+    if (root.page === "item" && root.selectedItem)
+      return (root.selectedPlugin ? root.selectedPlugin.name + " · " : "") + root.selectedItem.status
+    if (root.page === "plugin" && root.selectedPlugin)
+      return root.pluginSummary(root.selectedPlugin)
+    var n = root.pluginIds.length
+    var label = n + " plugin" + (n === 1 ? "" : "s")
+    if (model.counts && model.counts.unapplied > 0)
+      return label + " · " + model.counts.unapplied + " unapplied — Re-apply when ready"
+    return label
+  }
+
   onOpenedChanged: if (opened) {
-    clearArms()
+    confirmKind = ""
     goHome()
-    model.refresh(true)
+    if (model)
+      model.refresh(true)
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
-  Service { id: model; settings: root.settings }
+  onSettingsChanged: {
+    if (model)
+      model.settings = root.settings
+  }
 
   Connections {
-    target: model
+    target: root.model
+    enabled: root.model !== null
     function onPluginsRevisionChanged() { root.rebuild() }
-    function onLoadingChanged() { if (!model.loading) root.rebuild() }
+    function onLoadingChanged() { if (root.model && !root.model.loading) root.rebuild() }
+  }
+
+  onModelChanged: {
+    if (model) {
+      model.settings = root.settings
+      root.rebuild()
+    }
   }
 
   KeyboardPanel {
@@ -198,13 +309,24 @@ Panel {
       anchors.fill: parent
       blocked: customizeField.activeFocus
       onCloseRequested: {
+        if (root.confirmKind !== "") { root.confirmKind = ""; return }
         if (root.page === "item") { root.goPlugin(root.selectedPlugin.id); return }
         if (root.page === "plugin") { root.goHome(); return }
         root.close()
       }
-      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onReturnRequested: {
+        if (root.confirmKind !== "")
+          root.runConfirmed()
+      }
+      onTabRequested: function(direction) {
+        if (root.confirmKind !== "")
+          return
+        root.switchPanel(direction)
+      }
       onTextKey: function(text) {
-        if (text === "r" || text === "R") model.refresh(true)
+        if (root.confirmKind !== "")
+          return
+        if (text === "r" || text === "R") root.refreshModel()
       }
 
       Flickable {
@@ -230,22 +352,13 @@ Panel {
               if (root.page === "plugin" && root.selectedPlugin) return root.selectedPlugin.name
               return "Plugin Maleability"
             }
-            meta: {
-              if (model.installing) return "Installing skill links…"
-              if (model.acting) return "Working on plugin…"
-              if (model.loading) return "Scanning plugins…"
-              if (root.page === "item" && root.selectedItem)
-                return (root.selectedPlugin ? root.selectedPlugin.name + " · " : "") + root.selectedItem.status
-              if (root.page === "plugin" && root.selectedPlugin)
-                return root.pluginSummary(root.selectedPlugin)
-              return root.pluginIds.length + " plugin" + (root.pluginIds.length === 1 ? "" : "s")
-            }
+            meta: root.heroMeta()
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconComponent: Component {
               Text {
                 text: "󰠱"
-                color: model.attention ? root.urgent : root.foreground
+                color: root.attention ? root.urgent : root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.display
                 horizontalAlignment: Text.AlignHCenter
@@ -254,7 +367,6 @@ Panel {
             }
           }
 
-          // ---- home ----
           Column {
             visible: root.page === "home"
             width: parent.width
@@ -270,7 +382,7 @@ Panel {
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
                 verticalPadding: Style.spacing.controlPaddingY
-                onClicked: model.refresh(true)
+                onClicked: root.refreshModel()
               }
             }
 
@@ -295,7 +407,6 @@ Panel {
             }
           }
 
-          // ---- plugin ----
           Column {
             visible: root.page === "plugin" && root.selectedPlugin
             width: parent.width
@@ -314,22 +425,33 @@ Panel {
               }
             }
 
-            Text {
+            PanelSectionHeader {
               width: parent.width
               text: "CUSTOMIZATIONS"
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
+              foreground: root.foreground
+              fontFamily: root.fontFamily
             }
 
             Text {
-              visible: root.selectedPlugin && (!root.selectedPlugin.customizations || root.selectedPlugin.customizations.length === 0)
+              visible: root.selectedPlugin && (!root.selectedPlugin.customizations || root.selectedPlugin.customizations.length === 0) && !(root.selectedPlugin.unrecordedFiles && root.selectedPlugin.unrecordedFiles.length)
               width: parent.width
               text: "No recorded customizations."
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
+            }
+
+            Button {
+              visible: !!(root.selectedPlugin && root.selectedPlugin.unrecordedFiles && root.selectedPlugin.unrecordedFiles.length)
+              width: content.width
+              leftAlign: true
+              bordered: true
+              foreground: root.urgent
+              fontFamily: root.fontFamily
+              fontSize: Style.font.caption
+              verticalPadding: Style.spacing.controlPaddingY
+              text: root.selectedPlugin ? ("Unrecorded local edits  ·  " + root.selectedPlugin.unrecordedFiles.length) : ""
+              onClicked: root.goItem(root.unrecordedItem(root.selectedPlugin))
             }
 
             Repeater {
@@ -358,13 +480,11 @@ Panel {
 
             PanelSeparator { foreground: root.foreground }
 
-            Text {
+            PanelSectionHeader {
               width: parent.width
               text: "CUSTOMIZE"
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
+              foreground: root.foreground
+              fontFamily: root.fontFamily
             }
             TextField {
               id: customizeField
@@ -374,28 +494,26 @@ Panel {
               text: root.customizeText
               onTextChanged: root.customizeText = text
               onAccepted: {
-                if (root.customizeText.trim() === "")
+                if (root.customizeText.trim() === "" || !root.model)
                   return
-                model.launchCustomize(root.selectedPlugin.id, root.customizeText)
+                root.model.launchCustomize(root.selectedPlugin.id, root.customizeText)
                 root.customizeText = ""
                 customizeField.text = ""
-                root.close()
               }
               Keys.onEscapePressed: keyCatcher.forceActiveFocus()
             }
             Button {
               text: "Send to agent"
-              enabled: root.customizeText.trim() !== "" && !model.acting
+              enabled: root.customizeText.trim() !== "" && root.model && !root.model.acting
               bordered: true
               foreground: root.foreground
               fontFamily: root.fontFamily
               fontSize: Style.font.caption
               verticalPadding: Style.spacing.controlPaddingY
               onClicked: {
-                model.launchCustomize(root.selectedPlugin.id, root.customizeText)
+                root.model.launchCustomize(root.selectedPlugin.id, root.customizeText)
                 root.customizeText = ""
                 customizeField.text = ""
-                root.close()
               }
             }
 
@@ -410,50 +528,34 @@ Panel {
               spacing: Style.space(8)
               Button {
                 visible: root.hasRecords(root.selectedPlugin)
-                text: root.resetArmed ? "Confirm reset?" : "Reset to upstream"
-                enabled: !model.acting
-                bordered: true
-                foreground: root.resetArmed ? root.urgent : root.foreground
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                verticalPadding: Style.spacing.controlPaddingY
-                onClicked: {
-                  if (!root.resetArmed) {
-                    root.resetArmed = true
-                    resetArmTimer.restart()
-                    return
-                  }
-                  root.resetArmed = false
-                  model.runAction("reset", root.selectedPlugin.id, false)
-                }
-              }
-              Button {
-                visible: root.hasRecords(root.selectedPlugin)
-                text: root.reapplyArmed ? "Confirm re-apply?" : "Re-apply"
-                enabled: !model.acting
+                text: "Reset to upstream"
+                enabled: root.model && !root.model.acting
                 bordered: true
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
                 verticalPadding: Style.spacing.controlPaddingY
-                onClicked: {
-                  if (!root.reapplyArmed) {
-                    root.reapplyArmed = true
-                    reapplyArmTimer.restart()
-                    return
-                  }
-                  root.reapplyArmed = false
-                  model.runAction("reset", root.selectedPlugin.id, true)
-                }
+                onClicked: root.askConfirm("reset", "Reset this plugin to upstream? Untracked files in the checkout will be removed. Records stay, marked unapplied.")
+              }
+              Button {
+                visible: root.hasRecords(root.selectedPlugin)
+                text: "Re-apply"
+                enabled: root.model && !root.model.acting
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: root.askConfirm("reapply", "Reset to upstream, then re-apply recorded customizations? Untracked files in the checkout will be removed.")
               }
               Button {
                 visible: root.selectedPlugin && root.selectedPlugin.behind
                 text: {
                   if (!root.hasRecords(root.selectedPlugin))
-                    return root.updateOpen ? "Confirm update?" : "Update"
+                    return "Update"
                   return root.updateOpen ? "Cancel update" : "Update"
                 }
-                enabled: !model.acting
+                enabled: root.model && !root.model.acting
                 bordered: true
                 foreground: root.foreground
                 fontFamily: root.fontFamily
@@ -461,12 +563,7 @@ Panel {
                 verticalPadding: Style.spacing.controlPaddingY
                 onClicked: {
                   if (!root.hasRecords(root.selectedPlugin)) {
-                    if (!root.updateOpen) {
-                      root.updateOpen = true
-                      return
-                    }
-                    root.updateOpen = false
-                    model.runAction("update", root.selectedPlugin.id, false)
+                    root.askConfirm("update", "Update this plugin to upstream? Untracked files in the checkout will be removed.")
                     return
                   }
                   root.updateOpen = !root.updateOpen
@@ -482,7 +579,7 @@ Panel {
                 width: parent.width
                 leftAlign: true
                 text: "Upstream only"
-                enabled: !model.acting
+                enabled: root.model && !root.model.acting
                 bordered: true
                 foreground: root.foreground
                 fontFamily: root.fontFamily
@@ -490,14 +587,14 @@ Panel {
                 verticalPadding: Style.spacing.controlPaddingY
                 onClicked: {
                   root.updateOpen = false
-                  model.runAction("update", root.selectedPlugin.id, false)
+                  root.askConfirm("update", "Update to upstream only? Local customizations stay recorded but unapplied. Untracked files will be removed.")
                 }
               }
               Button {
                 width: parent.width
                 leftAlign: true
                 text: "Upstream then re-apply"
-                enabled: !model.acting
+                enabled: root.model && !root.model.acting
                 bordered: true
                 foreground: root.foreground
                 fontFamily: root.fontFamily
@@ -505,13 +602,12 @@ Panel {
                 verticalPadding: Style.spacing.controlPaddingY
                 onClicked: {
                   root.updateOpen = false
-                  model.runAction("update", root.selectedPlugin.id, true)
+                  root.askConfirm("updateReapply", "Update to upstream, then re-apply recorded customizations? Untracked files will be removed.")
                 }
               }
             }
           }
 
-          // ---- item ----
           Column {
             visible: root.page === "item" && root.selectedItem
             width: parent.width
@@ -535,6 +631,28 @@ Panel {
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+            Text {
+              visible: root.selectedItem && (root.selectedItem.appliedVersion || (root.selectedPlugin && root.selectedPlugin.version))
+              width: parent.width
+              text: {
+                var rec = root.selectedItem
+                var plugin = root.selectedPlugin
+                var applied = rec && rec.appliedVersion ? rec.appliedVersion : ""
+                var current = plugin && plugin.version ? plugin.version : ""
+                if (applied && current && applied !== current)
+                  return "Prior art  v" + applied + "  ·  plugin now v" + current
+                if (applied)
+                  return "Prior art  v" + applied
+                if (current)
+                  return "Plugin  v" + current
+                return ""
+              }
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
               wrapMode: Text.WordWrap
             }
             Text {
@@ -568,8 +686,7 @@ Panel {
                 fontSize: Style.font.caption
                 verticalPadding: Style.spacing.controlPaddingY
                 onClicked: {
-                  model.openRecord(root.selectedItem.path)
-                  root.close()
+                  root.model.openRecord(root.selectedItem.path)
                 }
               }
               Button {
@@ -581,40 +698,48 @@ Panel {
                 fontSize: Style.font.caption
                 verticalPadding: Style.spacing.controlPaddingY
                 onClicked: {
-                  model.launchItem({
+                  root.model.launchItem({
                     pluginId: root.selectedPlugin.id,
                     customizationId: root.selectedItem.id,
                     status: root.selectedItem.status
                   })
-                  root.close()
                 }
               }
               Button {
-                text: root.deleteArmed ? "Confirm delete?" : "Delete"
-                enabled: !model.acting
+                visible: root.selectedItem && root.selectedItem.status !== "unrecorded"
+                text: "Delete"
+                enabled: root.model && !root.model.acting
                 bordered: true
-                foreground: root.deleteArmed ? root.urgent : root.foreground
+                foreground: root.urgent
                 fontFamily: root.fontFamily
                 fontSize: Style.font.caption
                 verticalPadding: Style.spacing.controlPaddingY
                 onClicked: {
-                  if (!root.deleteArmed) {
-                    root.deleteArmed = true
-                    deleteArmTimer.restart()
-                    return
-                  }
-                  root.deleteArmed = false
-                  model.deleteCustomization(root.selectedPlugin.id, root.selectedItem.id)
+                  var destructive = root.selectedItem && root.selectedItem.status !== "unapplied" && root.selectedItem.status !== "draft"
+                  root.askConfirm("delete", destructive
+                    ? "Delete this customization? The plugin will reset to current HEAD, then remaining enabled customizations will be re-applied. Untracked files will be removed."
+                    : "Delete this record? The plugin checkout is left as-is.")
                 }
               }
             }
           }
         }
       }
+
+      ConfirmDialog {
+        id: confirmDialog
+        anchors.fill: parent
+        z: 20
+        opened: root.confirmKind !== ""
+        message: root.confirmMessage
+        confirmText: "Confirm"
+        cancelText: "Cancel"
+        background: Color.popups.background
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onCanceled: root.confirmKind = ""
+        onConfirmed: root.runConfirmed()
+      }
     }
   }
-
-  Timer { id: resetArmTimer; interval: 4000; repeat: false; onTriggered: root.resetArmed = false }
-  Timer { id: reapplyArmTimer; interval: 4000; repeat: false; onTriggered: root.reapplyArmed = false }
-  Timer { id: deleteArmTimer; interval: 4000; repeat: false; onTriggered: root.deleteArmed = false }
 }

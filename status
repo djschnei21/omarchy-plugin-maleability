@@ -6,13 +6,16 @@ Prints one JSON object. Optional flags:
   --fetch               git fetch origin on git-managed plugins
   --notify              desktop-notify on a false→true attention transition
   --reset PLUGIN_ID     restore checkout to HEAD/clone source; mark records unapplied
-  --update PLUGIN_ID    fetch and reset to origin; mark records unapplied
+  --update PLUGIN_ID    fetch and reset to origin (or clone source); mark unapplied
   --delete PLUGIN_ID CUSTOMIZATION_ID
-                        revert files if the record is enabled, then delete it
+                        unapplied/draft: remove the markdown.
+                        enabled: reset the checkout, then remove the markdown.
 """
 from __future__ import annotations
 
 import argparse
+import fcntl
+import hashlib
 import json
 import os
 import re
@@ -22,16 +25,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SELF_ID = "djschnei21.plugin-maleability"
-SKILL_NAME = "plugin-maleability"
 PLUGINS_DIR = Path.home() / ".config/omarchy/plugins"
 RECORDS_DIR = Path.home() / ".config/omarchy/plugin-maleability"
 NOTIFY_STATE = RECORDS_DIR / ".notify-state"
+LOCK_PATH = RECORDS_DIR / ".lock"
 SELF_DIR = Path(__file__).resolve().parent
 MAX_DIFF = 8000
-REAPPLY_PROMPT = (
-    "Re-apply recorded Omarchy plugin customizations. "
-    "Use the plugin-maleability skill."
-)
 
 
 def run(cmd, cwd=None, timeout=20):
@@ -61,6 +60,27 @@ def now_iso():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def fail_payload(error, **extra):
+    payload = {"ok": False, "error": error}
+    payload.update(extra)
+    json.dump(payload, sys.stdout)
+    sys.stdout.write("\n")
+    return 1
+
+
+class records_lock:
+    def __enter__(self):
+        RECORDS_DIR.mkdir(parents=True, exist_ok=True)
+        self.fd = open(LOCK_PATH, "a")
+        fcntl.flock(self.fd, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        fcntl.flock(self.fd, fcntl.LOCK_UN)
+        self.fd.close()
+        return False
+
+
 def read_json(path: Path, default=None):
     try:
         return json.loads(path.read_text())
@@ -73,6 +93,7 @@ def plugin_manifest(path: Path):
     return {
         "id": str(data.get("id") or path.name),
         "name": str(data.get("name") or path.name),
+        "version": str(data.get("version") or ""),
         "clonedFrom": str((data.get("omarchy") or {}).get("clonedFrom") or ""),
     }
 
@@ -172,11 +193,49 @@ def extract_section(body: str, heading: str) -> str:
     return text.strip()
 
 
+def extract_why(body: str) -> str:
+    return extract_section(body, "Why / decisions") or extract_section(body, "Why")
+
+
 def clip(text: str, limit: int = 700) -> str:
     text = text.strip()
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
+
+
+def tree_hash(plugin_dir: Path, files: list[str]) -> str:
+    h = hashlib.sha256()
+    for rel in sorted(files):
+        h.update(rel.encode())
+        h.update(b"\0")
+        path = plugin_dir / rel
+        if path.is_file():
+            h.update(path.read_bytes())
+        else:
+            h.update(b"-")
+        h.update(b"\n")
+    return h.hexdigest()[:16]
+
+
+def source_fingerprint(source: Path | None) -> str:
+    if not source or not source.is_dir():
+        return ""
+    rels = []
+    for src in source.rglob("*"):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(source).as_posix()
+        if rel == "manifest.json" or rel.startswith(".git/"):
+            continue
+        rels.append(rel)
+    h = hashlib.sha256()
+    for rel in sorted(rels):
+        h.update(rel.encode())
+        h.update(b"\0")
+        h.update((source / rel).read_bytes())
+        h.update(b"\n")
+    return h.hexdigest()[:16]
 
 
 def load_records():
@@ -205,11 +264,14 @@ def load_records():
                 "enabled": enabled,
                 "appliedCommit": str(applied.get("commit") or ""),
                 "appliedAt": str(applied.get("at") or ""),
+                "appliedVersion": str(applied.get("version") or ""),
+                "appliedSource": str(applied.get("source") or ""),
+                "appliedTree": str(applied.get("tree") or ""),
                 "files": [str(f) for f in files],
                 "path": str(path),
                 "draftGoal": goal_is_draft(body),
                 "goal": clip(extract_section(body, "Goal")),
-                "why": clip(extract_section(body, "Why / decisions"), 400),
+                "why": clip(extract_why(body), 400),
             }
             records.setdefault(pid, []).append(rec)
     return records
@@ -243,6 +305,39 @@ def git_dirty_files(path: Path) -> list[str]:
     return files
 
 
+def git_untracked_files(path: Path) -> list[str]:
+    code, out, _ = git(path, "status", "--porcelain", "-uall")
+    if code != 0 or not out:
+        return []
+    files = []
+    for line in out.splitlines():
+        if line.startswith("??"):
+            entry = line[3:].strip().strip('"')
+            if entry:
+                files.append(entry)
+    return files
+
+
+def clip_diff(text: str) -> str:
+    if len(text) > MAX_DIFF:
+        return text[:MAX_DIFF] + "\n… (truncated)\n"
+    return text
+
+
+def new_file_diff(path: Path) -> str:
+    if not path.is_file():
+        return f"--- {path.name} (presence changed)\n"
+    code, out, _ = run(["diff", "-u", "/dev/null", str(path)])
+    return out or f"--- {path.name} (presence changed)\n"
+
+
+def removed_file_diff(path: Path, rel: str) -> str:
+    if not path.is_file():
+        return f"--- {rel} (presence changed)\n"
+    code, out, _ = run(["diff", "-u", str(path), "/dev/null"])
+    return out or f"--- {rel} (presence changed)\n"
+
+
 def git_diff_text(path: Path) -> str:
     chunks = []
     code, out, _ = git(path, "diff", "HEAD")
@@ -251,11 +346,12 @@ def git_diff_text(path: Path) -> str:
     code, out, _ = git(path, "diff", "--cached")
     if code == 0 and out:
         chunks.append(out)
-    code, out, _ = git(path, "diff", "--stat", "HEAD")
-    text = "\n\n".join(chunks) if chunks else (out if code == 0 else "")
-    if len(text) > MAX_DIFF:
-        text = text[:MAX_DIFF] + "\n… (truncated)\n"
-    return text
+    for rel in git_untracked_files(path):
+        chunks.append(new_file_diff(path / rel))
+    if not chunks:
+        code, out, _ = git(path, "diff", "--stat", "HEAD")
+        return clip_diff(out if code == 0 else "")
+    return clip_diff("\n\n".join(chunks))
 
 
 def git_ahead_diff(path: Path, origin: str) -> str:
@@ -264,9 +360,7 @@ def git_ahead_diff(path: Path, origin: str) -> str:
     code, out, _ = git(path, "diff", f"{origin}...HEAD")
     if code != 0:
         return ""
-    if len(out) > MAX_DIFF:
-        return out[:MAX_DIFF] + "\n… (truncated)\n"
-    return out
+    return clip_diff(out)
 
 
 def clone_diff_files(path: Path, source: Path) -> list[str]:
@@ -275,19 +369,25 @@ def clone_diff_files(path: Path, source: Path) -> list[str]:
     _, out, _ = run(["diff", "-rq", str(source), str(path)])
     files = []
     prefix = str(path) + "/"
-    only_in = "Only in " + str(path)
+    only_in_clone = "Only in " + str(path)
+    only_in_source = "Only in " + str(source)
     for line in (out or "").splitlines():
         if line.startswith("Files ") and " and " in line:
             rest = line.split("Files ", 1)[1]
             right = rest.split(" and ", 1)[1].split(" differ", 1)[0]
             if right.startswith(prefix):
                 files.append(right[len(prefix) :])
-        elif line.startswith(only_in):
+        elif line.startswith(only_in_clone):
             loc = line[len("Only in ") :]
             folder, name = loc.split(": ", 1)
             rel = str(Path(folder).relative_to(path) / name) if folder != str(path) else name
             files.append(rel)
-    return [f for f in files if f != ".git" and not f.startswith(".git/")]
+        elif line.startswith(only_in_source):
+            loc = line[len("Only in ") :]
+            folder, name = loc.split(": ", 1)
+            rel = str(Path(folder).relative_to(source) / name) if folder != str(source) else name
+            files.append(rel)
+    return [f for f in files if f != ".git" and not f.startswith(".git/") and f != "manifest.json"]
 
 
 def clone_diff_text(path: Path, source: Path, files: list[str]) -> str:
@@ -297,16 +397,17 @@ def clone_diff_text(path: Path, source: Path, files: list[str]) -> str:
             continue
         left = source / rel
         right = path / rel
-        if not left.is_file() or not right.is_file():
+        if left.is_file() and right.is_file():
+            code, out, _ = run(["diff", "-u", str(left), str(right)])
+            if out:
+                chunks.append(out)
+        elif right.is_file() and not left.is_file():
+            chunks.append(new_file_diff(right))
+        elif left.is_file() and not right.is_file():
+            chunks.append(removed_file_diff(left, rel))
+        else:
             chunks.append(f"--- {rel} (presence changed)\n")
-            continue
-        code, out, _ = run(["diff", "-u", str(left), str(right)])
-        if out:
-            chunks.append(out)
-    text = "\n".join(chunks)
-    if len(text) > MAX_DIFF:
-        text = text[:MAX_DIFF] + "\n… (truncated)\n"
-    return text
+    return clip_diff("\n".join(chunks))
 
 
 def slug_for(files: list[str]) -> str:
@@ -335,7 +436,15 @@ def summarize_files(files: list[str]) -> str:
     return f"local edits to {shown[0]}, {shown[1]}, and {len(shown) - 2} more"
 
 
-def write_record(plugin_id: str, files: list[str], commit: str, diff: str, title_prefix="Local edits"):
+def write_record(
+    plugin_id: str,
+    files: list[str],
+    commit: str,
+    diff: str,
+    plugin_path: Path | None = None,
+    source_fp: str = "",
+    title_prefix="Local edits",
+):
     RECORDS_DIR.mkdir(parents=True, exist_ok=True)
     plugin_dir = RECORDS_DIR / plugin_id
     plugin_dir.mkdir(parents=True, exist_ok=True)
@@ -349,15 +458,23 @@ def write_record(plugin_id: str, files: list[str], commit: str, diff: str, title
     title = title[0].upper() + title[1:] if title else title_prefix
     file_lines = "\n".join(f"  - {f}" for f in files) or "  - ."
     diff = diff.strip() or "(no textual diff)"
+    tree = tree_hash(plugin_path, files) if plugin_path else ""
+    version = plugin_manifest(plugin_path)["version"] if plugin_path else ""
+    applied_lines = [f"  commit: {commit}", f"  at: {now_iso()}"]
+    if version:
+        applied_lines.append(f"  version: {version}")
+    if tree:
+        applied_lines.append(f"  tree: {tree}")
+    if source_fp:
+        applied_lines.append(f"  source: {source_fp}")
     body = f"""---
 id: {path.stem}
 plugin: {plugin_id}
 title: {title}
 bootstrapped: true
-enabled: true
+enabled: false
 applied:
-  commit: {commit}
-  at: {now_iso()}
+{chr(10).join(applied_lines)}
 files:
 {file_lines}
 ---
@@ -381,7 +498,7 @@ installed, because this checkout differed from upstream.
 
 ## Prior art
 
-Captured against `{commit}`. This is an example of the current local tree,
+Captured against{f" version {version}" if version else ""} `{commit}`. This is an example of the current local tree,
 not a patch to apply blindly.
 
 ```diff
@@ -404,17 +521,22 @@ def sha_match(head: str, applied: str) -> bool:
     return head.startswith(applied) or applied.startswith(head[: min(len(applied), 7)])
 
 
-def customization_status(rec, head: str, dirty: list[str]) -> str:
-    if rec["bootstrapped"] and rec["draftGoal"]:
+def is_placeholder_draft(rec: dict) -> bool:
+    return bool(rec.get("bootstrapped") and rec.get("draftGoal"))
+
+
+def customization_status(rec, head: str, source_fp: str = "", current_tree: str = "") -> str:
+    if is_placeholder_draft(rec):
         return "draft"
     if not rec.get("enabled", True):
         return "unapplied"
-    if rec["appliedCommit"] and head and not sha_match(head, rec["appliedCommit"]):
+    if rec.get("appliedSource") and source_fp and rec["appliedSource"] != source_fp:
         return "stale"
-    extra = set(dirty) - set(rec["files"])
-    if extra and rec.get("enabled", True):
-        # Extra dirty files are plugin-level unrecorded, not this record's status.
-        pass
+    commit = rec.get("appliedCommit") or ""
+    if commit and commit != "cloned" and head and not sha_match(head, commit):
+        return "stale"
+    if rec.get("appliedTree") and current_tree and rec["appliedTree"] != current_tree:
+        return "drift"
     return "applied"
 
 
@@ -436,6 +558,32 @@ def set_record_enabled(path: Path, enabled: bool) -> None:
     path.write_text("---\n" + block.strip() + "\n---" + body)
 
 
+def set_applied_field(path: Path, key: str, value: str) -> None:
+    text = path.read_text(errors="replace")
+    if not text.startswith("---"):
+        return
+    rest = text[3:].lstrip("\n")
+    end = rest.find("\n---")
+    if end < 0:
+        return
+    block = rest[:end]
+    body = rest[end + 4 :]
+    nested = re.compile(rf"^  {re.escape(key)}:\s*.*$", re.M)
+    if nested.search(block):
+        block = nested.sub(f"  {key}: {value}", block, count=1)
+    elif re.search(r"^applied:\s*$", block, re.M):
+        block = re.sub(
+            r"^applied:\s*$",
+            f"applied:\n  {key}: {value}",
+            block,
+            count=1,
+            flags=re.M,
+        )
+    else:
+        block = block.rstrip() + f"\napplied:\n  {key}: {value}\n"
+    path.write_text("---\n" + block.strip() + "\n---" + body)
+
+
 def mark_plugin_records(plugin_id: str, enabled: bool) -> int:
     n = 0
     for rec in load_records().get(plugin_id, []):
@@ -445,6 +593,8 @@ def mark_plugin_records(plugin_id: str, enabled: bool) -> int:
 
 
 def find_plugin_dir(plugin_id: str) -> Path | None:
+    if "/" in plugin_id or ".." in plugin_id:
+        return None
     direct = PLUGINS_DIR / plugin_id
     if direct.is_dir():
         return direct
@@ -458,17 +608,43 @@ def find_plugin_dir(plugin_id: str) -> Path | None:
     return None
 
 
-def reset_checkout(path: Path, catalog) -> str:
+def list_untracked_for_clean(path: Path, catalog) -> list[str]:
     if (path / ".git").exists():
-        code, _, err = git(path, "reset", "--hard", "HEAD")
-        if code != 0:
-            return err or "git reset failed"
-        git(path, "clean", "-fd", "-e", ".git")
-        return ""
+        return git_untracked_files(path)
     meta = plugin_manifest(path)
     source = catalog.get(meta.get("clonedFrom") or "")
     if not source or not source.is_dir():
-        return "not a git checkout and no clone source"
+        return []
+    wanted = set()
+    for src in source.rglob("*"):
+        if src.is_file():
+            rel = src.relative_to(source).as_posix()
+            if rel != "manifest.json":
+                wanted.add(rel)
+    extra = []
+    for dest in path.rglob("*"):
+        if not dest.is_file():
+            continue
+        rel = dest.relative_to(path).as_posix()
+        if rel in ("manifest.json",) or rel.startswith(".git/"):
+            continue
+        if rel not in wanted:
+            extra.append(rel)
+    return extra
+
+
+def reset_checkout(path: Path, catalog) -> tuple[str, list[str]]:
+    cleaned = list_untracked_for_clean(path, catalog)
+    if (path / ".git").exists():
+        code, _, err = git(path, "reset", "--hard", "HEAD")
+        if code != 0:
+            return err or "git reset failed", []
+        git(path, "clean", "-fd", "-e", ".git")
+        return "", cleaned
+    meta = plugin_manifest(path)
+    source = catalog.get(meta.get("clonedFrom") or "")
+    if not source or not source.is_dir():
+        return "not a git checkout and no clone source", []
     wanted = set()
     for src in source.rglob("*"):
         if not src.is_file():
@@ -488,85 +664,73 @@ def reset_checkout(path: Path, catalog) -> str:
             continue
         if rel not in wanted:
             dest.unlink()
-    return ""
+    return "", cleaned
 
 
-def restore_record_files(plugin_dir: Path, rec: dict, catalog) -> str:
-    files = [f for f in rec.get("files") or [] if f and f != "manifest.json"]
-    if not files:
-        return ""
-    if (plugin_dir / ".git").exists():
-        tracked, extra = [], []
-        for rel in files:
-            code, _, _ = git(plugin_dir, "ls-files", "--error-unmatch", rel)
-            if code == 0:
-                tracked.append(rel)
-            else:
-                extra.append(rel)
-        if tracked:
-            code, _, err = git(plugin_dir, "checkout", "HEAD", "--", *tracked)
-            if code != 0:
-                return err or "git checkout failed"
-        for rel in extra:
-            dest = plugin_dir / rel
-            if dest.is_file():
-                dest.unlink()
-        return ""
-    meta = plugin_manifest(plugin_dir)
-    source = catalog.get(meta.get("clonedFrom") or "")
-    if not source or not source.is_dir():
-        return "not a git checkout and no clone source"
-    for rel in files:
-        src = source / rel
-        dest = plugin_dir / rel
-        if src.is_file():
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(src.read_bytes())
-        elif dest.is_file():
-            dest.unlink()
-    return ""
-
-
-def delete_customization(plugin_id: str, customization_id: str, catalog) -> tuple[str, list[str]]:
+def delete_customization(plugin_id: str, customization_id: str, catalog) -> tuple[str, list[str], list[str]]:
     recs = load_records().get(plugin_id, [])
     rec = next((r for r in recs if r["id"] == customization_id), None)
     if not rec:
-        return f"customization not found: {customization_id}", []
+        return f"customization not found: {customization_id}", [], []
     remaining_enabled = [
         r["id"]
         for r in recs
-        if r["id"] != customization_id and r.get("enabled", True)
+        if r["id"] != customization_id
+        and r.get("enabled", True)
+        and not is_placeholder_draft(r)
     ]
     path = Path(rec["path"])
-    if path.is_file():
-        path.unlink()
-    if not rec.get("enabled", True):
-        return "", []
+    destructive = rec.get("enabled", True) and not is_placeholder_draft(rec)
+    if not destructive:
+        if path.is_file():
+            path.unlink()
+        return "", [], []
     plugin_dir = find_plugin_dir(plugin_id)
     if not plugin_dir:
-        return f"plugin not found: {plugin_id}", []
-    err = reset_checkout(plugin_dir, catalog)
+        return f"plugin not found: {plugin_id}", [], []
+    err, cleaned = reset_checkout(plugin_dir, catalog)
     if err:
-        return err, []
+        return err, [], []
+    if path.is_file():
+        path.unlink()
     mark_plugin_records(plugin_id, False)
-    return "", remaining_enabled
+    return "", remaining_enabled, cleaned
 
 
-def update_checkout(path: Path) -> str:
+def update_checkout(path: Path, catalog) -> tuple[str, list[str]]:
     if not (path / ".git").exists():
-        return "not a git checkout"
+        return reset_checkout(path, catalog)
+    pre = git_head(path)
+    cleaned = list_untracked_for_clean(path, catalog)
     code, _, err = git(path, "fetch", "--quiet", "origin", timeout=60)
     if code != 0:
-        return err or "git fetch failed"
+        return err or "git fetch failed", []
     code, _, err = git(path, "reset", "--hard", "FETCH_HEAD")
     if code != 0:
-        return err or "git reset failed"
+        return err or "git reset failed", []
     git(path, "clean", "-fd", "-e", ".git")
-    return ""
+    vcode, _, verr = run(["omarchy-plugin-validate", str(path)], timeout=30)
+    if vcode != 0:
+        if pre:
+            git(path, "reset", "--hard", pre)
+            git(path, "clean", "-fd", "-e", ".git")
+        return (verr or "plugin validate failed after update").strip() or "plugin validate failed after update", []
+    return "", cleaned
 
 
 def short(sha: str) -> str:
     return sha[:7] if sha else ""
+
+
+def backfill_applied(rec: dict, plugin_path: Path, source_fp: str) -> None:
+    path = Path(rec["path"])
+    if rec["files"] and plugin_path.is_dir() and not rec.get("appliedTree"):
+        tree = tree_hash(plugin_path, rec["files"])
+        set_applied_field(path, "tree", tree)
+        rec["appliedTree"] = tree
+    if source_fp and not rec.get("appliedSource"):
+        set_applied_field(path, "source", source_fp)
+        rec["appliedSource"] = source_fp
 
 
 def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
@@ -583,6 +747,7 @@ def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
     ahead = False
     behind = False
     bootstrap_diff = ""
+    source_fp = ""
     is_git = (path / ".git").exists()
     if is_git:
         kind = "git"
@@ -591,7 +756,6 @@ def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
         head = git_head(path)
         origin = git_origin(path)
         dirty = git_dirty_files(path)
-        behind = False
         if origin and head:
             code, behind_count, _ = git(path, "rev-list", "--count", f"{head}..{origin}")
             code2, ahead_count, _ = git(path, "rev-list", "--count", f"{origin}..{head}")
@@ -611,8 +775,8 @@ def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
         kind = "clone"
         source = catalog.get(meta["clonedFrom"])
         if source:
+            source_fp = source_fingerprint(source)
             dirty = clone_diff_files(path, source)
-            # Ignore clones whose only drift is the clone manifest rewrite.
             meaningful = [f for f in dirty if f != "manifest.json"]
             if not meaningful:
                 dirty = []
@@ -623,8 +787,13 @@ def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
     recs = records.get(pid, [])
     customizations = []
     recorded_files = set()
+    clone_stale = False
     for rec in recs:
-        status = customization_status(rec, head, dirty)
+        backfill_applied(rec, path, source_fp)
+        current_tree = tree_hash(path, rec["files"]) if rec["files"] else ""
+        status = customization_status(rec, head, source_fp, current_tree)
+        if status == "stale" and kind == "clone" and rec.get("enabled", True) and not is_placeholder_draft(rec):
+            clone_stale = True
         recorded_files.update(rec["files"])
         customizations.append(
             {
@@ -634,16 +803,20 @@ def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
                 "enabled": rec.get("enabled", True),
                 "path": rec["path"],
                 "appliedCommit": rec["appliedCommit"],
+                "appliedVersion": rec.get("appliedVersion") or "",
                 "bootstrapped": rec["bootstrapped"],
                 "files": rec["files"],
                 "goal": rec["goal"],
                 "why": rec["why"],
             }
         )
+    if kind == "clone" and clone_stale:
+        behind = True
     unrecorded = [f for f in dirty if f not in recorded_files]
     return {
         "id": pid,
         "name": meta["name"],
+        "version": meta.get("version") or "",
         "kind": kind,
         "path": str(path),
         "head": head,
@@ -652,6 +825,7 @@ def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
         "behind": behind,
         "dirty": dirty,
         "unrecordedFiles": unrecorded,
+        "sourceFingerprint": source_fp,
         "customizations": customizations,
         "_bootstrap_diff": bootstrap_diff,
     }
@@ -659,7 +833,6 @@ def scan_plugin(path: Path, records, catalog, fetch: bool) -> dict | None:
 
 def needs_bootstrap(plugin: dict) -> bool:
     if plugin["customizations"]:
-        # still bootstrap leftover unrecorded files as a new record
         return bool(plugin["unrecordedFiles"])
     return bool(plugin["dirty"]) or plugin["ahead"]
 
@@ -678,6 +851,8 @@ def bootstrap(plugins: list[dict]):
             files,
             commit,
             plugin.get("_bootstrap_diff") or "",
+            plugin_path=Path(plugin["path"]),
+            source_fp=plugin.get("sourceFingerprint") or "",
         )
         written.append(str(path))
     return written
@@ -691,6 +866,7 @@ def assemble(plugins: list[dict]) -> dict:
         "updateAvailable": 0,
         "applied": 0,
         "unapplied": 0,
+        "drift": 0,
     }
     out_plugins = []
     for plugin in plugins:
@@ -705,7 +881,8 @@ def assemble(plugins: list[dict]) -> dict:
         public = {k: v for k, v in plugin.items() if not k.startswith("_")}
         out_plugins.append(public)
     attention = any(
-        counts[k] > 0 for k in ("stale", "draft", "unrecorded", "updateAvailable")
+        counts[k] > 0
+        for k in ("stale", "draft", "unrecorded", "updateAvailable", "drift")
     )
     return {
         "ok": True,
@@ -730,6 +907,8 @@ def notify_if_needed(payload: dict):
     bits = []
     if counts["stale"]:
         bits.append(f"{counts['stale']} to re-apply")
+    if counts.get("drift"):
+        bits.append(f"{counts['drift']} drift")
     if counts["draft"]:
         bits.append(f"{counts['draft']} draft")
     if counts["unrecorded"]:
@@ -766,58 +945,63 @@ def main():
     parser.add_argument("--delete", nargs=2, metavar=("PLUGIN_ID", "CUSTOMIZATION_ID"))
     args = parser.parse_args()
 
-    catalog = catalog_source_dirs()
+    with records_lock():
+        catalog = catalog_source_dirs()
 
-    reapply_ids = []
-    if args.delete:
-        err, reapply_ids = delete_customization(args.delete[0], args.delete[1], catalog)
-        if err:
-            json.dump({"ok": False, "error": err}, sys.stdout)
-            sys.stdout.write("\n")
-            return 1
+        reapply_ids = []
+        cleaned = []
+        if args.delete:
+            err, reapply_ids, cleaned = delete_customization(
+                args.delete[0], args.delete[1], catalog
+            )
+            if err:
+                return fail_payload(
+                    err,
+                    plugin=args.delete[0],
+                    customization=args.delete[1],
+                )
 
-    if args.reset or args.update:
-        plugin_id = args.reset or args.update
-        path = find_plugin_dir(plugin_id)
-        if not path:
-            json.dump({"ok": False, "error": f"plugin not found: {plugin_id}"}, sys.stdout)
-            sys.stdout.write("\n")
-            return 1
-        if args.update:
-            err = update_checkout(path)
-        else:
-            err = reset_checkout(path, catalog)
-        if err:
-            json.dump({"ok": False, "error": err, "plugin": plugin_id}, sys.stdout)
-            sys.stdout.write("\n")
-            return 1
-        mark_plugin_records(plugin_id, False)
-    records = load_records()
-    plugins = []
-    if PLUGINS_DIR.is_dir():
-        for path in sorted(PLUGINS_DIR.iterdir()):
-            scanned = scan_plugin(path, records, catalog, fetch=args.fetch)
-            if scanned:
-                plugins.append(scanned)
+        if args.reset or args.update:
+            plugin_id = args.reset or args.update
+            path = find_plugin_dir(plugin_id)
+            if not path:
+                return fail_payload(f"plugin not found: {plugin_id}", plugin=plugin_id)
+            if args.update:
+                err, cleaned = update_checkout(path, catalog)
+            else:
+                err, cleaned = reset_checkout(path, catalog)
+            if err:
+                return fail_payload(err, plugin=plugin_id)
+            mark_plugin_records(plugin_id, False)
 
-    if args.bootstrap:
-        bootstrap(plugins)
         records = load_records()
         plugins = []
         if PLUGINS_DIR.is_dir():
             for path in sorted(PLUGINS_DIR.iterdir()):
-                scanned = scan_plugin(path, records, catalog, fetch=False)
+                scanned = scan_plugin(path, records, catalog, fetch=args.fetch)
                 if scanned:
                     plugins.append(scanned)
 
-    payload = assemble(plugins)
-    if reapply_ids:
-        payload["reapplyIds"] = reapply_ids
-    if args.notify:
-        notify_if_needed(payload)
-    json.dump(payload, sys.stdout, indent=2)
-    sys.stdout.write("\n")
-    return 0
+        if args.bootstrap:
+            bootstrap(plugins)
+            records = load_records()
+            plugins = []
+            if PLUGINS_DIR.is_dir():
+                for path in sorted(PLUGINS_DIR.iterdir()):
+                    scanned = scan_plugin(path, records, catalog, fetch=False)
+                    if scanned:
+                        plugins.append(scanned)
+
+        payload = assemble(plugins)
+        if reapply_ids:
+            payload["reapplyIds"] = reapply_ids
+        if cleaned:
+            payload["cleaned"] = cleaned
+        if args.notify:
+            notify_if_needed(payload)
+        json.dump(payload, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 0
 
 
 if __name__ == "__main__":

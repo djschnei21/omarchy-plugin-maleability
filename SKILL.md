@@ -30,7 +30,9 @@ python3 ~/.config/omarchy/plugins/djschnei21.plugin-maleability/status
 Do **not** run git reset yourself when the prompt says the plugin is already reset.
 
 Record format: `references/record-format.md`. Frontmatter `enabled: true|false`
-(missing means true). Set `enabled: true` only after **Verify live**.
+(missing means true). Set `enabled: true` only after **Verify live**. Then write
+`applied.commit` / `applied.version` / `applied.tree` / `applied.source` as
+that file specifies.
 
 ## Scope
 
@@ -57,7 +59,9 @@ behavior on the running plugin. Before `enabled: true`:
 
 1. Implement the request in `~/.config/omarchy/plugins/<id>/`.
 2. Write the record (Goal, Why, Where to look, Prior art, `bootstrapped: false`).
-3. **Verify live**, then set `enabled: true` and `applied.commit` to HEAD.
+   Prior art is the implementation you just did, as in `references/record-format.md`.
+3. **Verify live**, then set `enabled: true` and write `applied` as in
+   `references/record-format.md`.
 4. Do not commit the plugin repo.
 
 ## Record (after a manual tweak)
@@ -70,13 +74,14 @@ also changed plugin source.
 
 ## Re-apply one customization
 
-1. Run `status`. Find that plugin/id.
+1. Run `status`. Find that plugin/id. Read its record before editing.
 2. Do not reset the whole plugin (other customizations may be applied).
-3. Re-implement that record's **Goal** on the current tree. Prior art is a map,
-   not a patch.
+   Do not `git reset`.
+3. Re-implement that record's **Goal** on the current tree. Use **Prior art**
+   as a map, not a patch.
 4. Run the plugin's tests if present.
-5. **Verify live**, then set `enabled: true` and update `applied.commit` /
-   files / prior art.
+5. **Verify live**, then set `enabled: true`, update `applied` / `files`, and
+   **rewrite Prior art** from this implementation (same spec as Customize).
 6. If upstream removed the feature, leave the record, set `enabled: false`, say so.
 
 ## Re-apply a plugin (after helper reset)
@@ -93,10 +98,11 @@ unapplied, not gone.
 
 The panel **Delete** button runs `status --delete PLUGIN_ID CUSTOMIZATION_ID`.
 
-- Unapplied: only the markdown is removed.
-- Enabled: the markdown is removed, the plugin checkout is reset to **current
-  HEAD** (not a fetch), remaining records are marked `enabled: false`, then
-  the agent is asked to re-apply the records that were still enabled, one by
-  one. Do not git reset again. Do not re-apply the deleted id.
+- Unapplied or draft: only the markdown is removed.
+- Enabled (not a draft): the helper resets the checkout to **current HEAD**
+  (not a fetch), then removes the markdown, remaining non-draft records are
+  marked `enabled: false`, then the agent is asked to re-apply the records
+  that were still enabled, one by one. Do not git reset again. Do not re-apply
+  the deleted id.
 
 Overlapping file edits are why we do not restore one record's files in place.

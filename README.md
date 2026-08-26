@@ -4,12 +4,18 @@ An Omarchy bar widget plus an agent skill that keep local tweaks to other
 shell plugins after those plugins update — a play on the malleable computer.
 
 Third-party plugins are git checkouts. `omarchy plugin update` fast-forwards
-them and will not keep uncommitted edits. This plugin records **why** you
-changed something — goal, decisions, symbols, a worked example — outside those
-checkouts, lights the bar when an update would wipe the work, and re-applies
-it through whatever agent `omarchy default agent` selected.
+them and will not keep uncommitted edits — on a dirty tree it refuses. This
+plugin records **why** you changed something — goal, decisions, symbols, a
+worked example — outside those checkouts, lights the bar when an update would
+wipe the work, and re-applies it through whatever agent `omarchy default agent`
+selected.
 
-It runs inside the long-running `omarchy-shell` process. It does not start a
+Cloned built-ins (`omarchy plugin clone`) have no git origin. Maleability
+fingerprints the first-party catalog source and treats a moved source the
+same way: stale, with Update / Re-apply.
+
+It runs inside the long-running `omarchy-shell` process. The scanner is a
+`service` singleton; the bar icon is the `bar-widget`. It does not start a
 second Quickshell instance.
 
 ## Install
@@ -20,18 +26,18 @@ omarchy plugin add https://github.com/djschnei21/omarchy-plugin-maleability.git 
 
 On first load the widget:
 
-- links this tree into each Omarchy agent skill directory under `$HOME`
+- links `SKILL.md` and `references/` into each Omarchy agent skill directory under `$HOME`
 - scans installed plugins for existing local diffs and writes draft records
 - sits in the right section of the bar
 
-The home list is every local plugin. Open one to see its records.
+The home list is every local plugin (attention-first). Open one to see its records.
 
 - **Reset to upstream** restores stock code and marks records unapplied (they stay).
 - **Re-apply** resets, then asks your default agent to put each record back.
 - **Customize** is a text box: describe a change and an agent implements and records it.
-- **Update** (when origin is ahead) is upstream-only or upstream-then-re-apply.
+- **Update** (when origin is ahead, or a clone’s first-party source moved) is upstream-only or upstream-then-re-apply. This is a hard reset to upstream, not `omarchy plugin update`’s fast-forward.
 
-Per-record **Re-apply** / **Refine** still run on that item only.
+Per-record **Re-apply** / **Refine** / **Record** still run on that item only.
 
 ## Usage
 
@@ -52,11 +58,11 @@ omarchy plugin remove djschnei21.plugin-maleability
 ```
 
 Records at `~/.config/omarchy/plugin-maleability/` stay, so a later reinstall
-can still re-apply them. Skill symlinks under `$HOME` will point at a removed
+can still re-apply them. Skill links under `$HOME` will point at a removed
 tree; drop them if you are not reinstalling:
 
 ```sh
-rm -f ~/.agents/skills/plugin-maleability \
+rm -rf ~/.agents/skills/plugin-maleability \
       ~/.claude/skills/plugin-maleability \
       ~/.codex/skills/plugin-maleability \
       ~/.pi/agent/skills/plugin-maleability \
@@ -66,7 +72,7 @@ rm -f ~/.agents/skills/plugin-maleability \
 ## Requirements
 
 - Omarchy Quattro with shell plugins
-- `python3`, `git`, `diff`, `jq` (Omarchy already has these)
+- `python3`, `git`, `diff` (Omarchy already has these)
 - A default coding agent (`omarchy default agent`)
 
 ## Privilege boundary
@@ -74,9 +80,9 @@ rm -f ~/.agents/skills/plugin-maleability \
 This plugin is unsandboxed, like every Omarchy plugin. It does not ask for
 `sudo` or `pkexec`.
 
-- `scripts/install` writes skill symlinks under `$HOME` and bootstraps records
+- `scripts/install` writes skill links under `$HOME` and bootstraps records
   under `~/.config/omarchy/plugin-maleability/`.
-- The bar widget runs `python3 status` in the shell process and launches the
+- The service runs `python3 status` in the shell process and launches the
   default agent with `omarchy-agent-prompt`.
 - Removal is `omarchy plugin remove`. It does not delete records.
 
@@ -84,13 +90,15 @@ This plugin is unsandboxed, like every Omarchy plugin. It does not ask for
 
 ```sh
 PLUGIN_DIR="$HOME/.config/omarchy/plugins/djschnei21.plugin-maleability"
+bash "$PLUGIN_DIR/tests/status-test.sh"
 omarchy plugin validate "$PLUGIN_DIR"
 qmllint -I "$OMARCHY_PATH/shell" \
-  "$PLUGIN_DIR/BarWidget.qml" "$PLUGIN_DIR/Panel.qml"
+  "$PLUGIN_DIR/BarWidget.qml" "$PLUGIN_DIR/Panel.qml" "$PLUGIN_DIR/Service.qml"
 ```
 
 The details panel is part of this `bar-widget`. `BarWidget.qml` is the
-manifest entry; it loads `Panel.qml`. There is no separate `panel` kind.
+manifest bar entry; `Service.qml` is the singleton scanner. There is no
+separate `panel` kind.
 
 ## License
 
